@@ -3,9 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Safe Fix Ver）</title>
+    <title>かめはめ波（Debug Ver）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; }
+        
+        /* エラーログ表示用エリア */
+        #debug-log {
+            position: absolute; top: 0; left: 0; width: 100%; 
+            background: rgba(0,0,0,0.7); color: #FF0000; 
+            font-size: 16px; z-index: 9999; pointer-events: none;
+            white-space: pre-wrap; padding: 10px;
+        }
+
         canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 10; }
         
@@ -16,12 +25,15 @@
         }
         button:active { transform: scale(0.95); }
 
+        /* 最初から表示するように flex に変更 */
         .screen { 
-            display: none; flex-direction: column; align-items: center; justify-content: center;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 30px; 
             border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 5%; pointer-events: auto;
             width: 90%; max-width: 600px; box-sizing: border-box;
         }
+        /* ゲーム開始後は隠す */
+        .hidden { display: none !important; }
         
         h1 { color: #00FF00; font-size: clamp(40px, 10vw, 80px); margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
         p { color: white; font-size: clamp(16px, 4vw, 24px); margin-bottom: 30px; font-weight: bold; text-align: center; line-height: 1.5; }
@@ -32,25 +44,33 @@
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
         
         .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
-        #loading-msg { color: #00FF00; font-size: 20px; font-weight: bold; margin-top: 20px; display: none; }
+        #loading-msg { color: #00FF00; font-size: 20px; font-weight: bold; margin-top: 20px; }
     </style>
+
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            document.getElementById('debug-log').innerHTML += "【Error】" + msg + "<br>";
+        };
+    </script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
     <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
 </head>
 <body>
+    <div id="debug-log"></div>
+    
     <div id="ui-layer">
         <div id="title-screen" class="screen">
             <h1>かめはめ波</h1>
             <p>〜 AI モーションキャプチャ版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
-            <button onclick="startGame()" id="start-btn">ロード中...</button>
-            <div id="loading-msg">AI準備中...<br>初回は時間がかかります</div>
+            <button onclick="startGame()" id="start-btn" disabled>ロード中...</button>
+            <div id="loading-msg">カメラとAIを準備中...</div>
             <div class="credit">音楽素材：魔王魂 / AR Spark</div>
         </div>
 
-        <div id="result-screen" class="screen">
+        <div id="result-screen" class="screen hidden">
             <h1>おしまい！</h1>
             <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
             <div class="score-val"><span id="final-score">0</span></div>
@@ -61,7 +81,6 @@
     </div>
 
     <script>
-        // ★修正：最も安全な 640x480 に変更（これで止まることはありません）
         const CAM_W = 640; 
         const CAM_H = 480;
         
@@ -103,86 +122,38 @@
         let modelIsReady = false;
 
         function setup() {
-            createCanvas(windowWidth, windowHeight);
-            colorMode(RGB, 255, 255, 255, 255);
-            background(0);
+            try {
+                createCanvas(windowWidth, windowHeight);
+                colorMode(RGB, 255, 255, 255, 255);
+                background(0);
 
-            loadResources();
+                loadResources();
 
-            let savedScore = localStorage.getItem('kamehameha_highscore');
-            if(savedScore) highScore = parseInt(savedScore);
-            updateScoreLabels();
-            
-            let constraints = {
-                video: {
-                    facingMode: (location.hostname.includes("github.io")) ? "user" : undefined,
-                    width: { ideal: CAM_W },
-                    height: { ideal: CAM_H }
-                },
-                audio: false
-            };
-            video = createCapture(constraints, function() { 
-                console.log("Camera OK"); 
-                initPoseNet();
-            });
-            video.size(CAM_W, CAM_H);
-            video.hide();
-            
-            setupSounds();
-            bossBaseY = height * 0.6;
-        }
+                let savedScore = localStorage.getItem('kamehameha_highscore');
+                if(savedScore) highScore = parseInt(savedScore);
+                updateScoreLabels();
+                
+                // カメラ設定（シンプル化）
+                let constraints = {
+                    video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
+                    audio: false
+                };
+                
+                // GitHub上ならインカメラを試みる
+                if (location.hostname.includes("github.io")) {
+                    constraints.video.facingMode = "user";
+                }
 
-        function initPoseNet() {
-            document.getElementById('loading-msg').style.display = 'block';
-            let options = {
-                architecture: 'MobileNetV1',
-                imageScaleFactor: 0.3,
-                outputStride: 16,
-                flipHorizontal: true,
-                minConfidence: 0.5,
-                maxPoseDetects: 1,
-                scoreThreshold: 0.5,
-                nmsRadius: 20,
-                detectionType: 'single',
-                multiplier: 0.75
-            };
-            poseNet = ml5.poseNet(video, options, modelReady);
-            poseNet.on('pose', function(results) {
-                poses = results;
-            });
-        }
-
-        function modelReady() {
-            console.log('Model Loaded');
-            modelIsReady = true;
-            document.getElementById('start-btn').innerText = "あそぶ！";
-            document.getElementById('loading-msg').style.display = 'none';
-        }
-
-        function loadResources() {
-            imgWater = loadImage('water.png', () => imagesLoaded.water = true, () => console.log('water error'));
-            imgEnemy1 = loadImage('enemy1.png', () => imagesLoaded.enemy1 = true, () => console.log('enemy1 error'));
-            imgEnemy2 = loadImage('enemy2.png', () => imagesLoaded.enemy2 = true, () => console.log('enemy2 error'));
-            imgBoss = loadImage('boss.png', () => imagesLoaded.boss = true, () => console.log('boss error'));
-            imgBossEnd = loadImage('boss_end.png', () => imagesLoaded.bossEnd = true, () => console.log('boss_end error'));
-            
-            bgmNormal = loadSound('normal_bgm.mp3', () => soundLoaded.normal = true, () => console.log('bgm error'));
-            bgmExtra1 = loadSound('extra1_bgm.mp3', () => soundLoaded.extra1 = true, () => console.log('bgm error'));
-            bgmBoss = loadSound('boss_bgm.mp3', () => soundLoaded.boss = true, () => console.log('bgm error'));
-            bgmVictory = loadSound('victory.mp3', () => soundLoaded.victory = true, () => console.log('bgm error'));
-        }
-
-        function setupSounds() {
-            osc = new p5.Oscillator('sine');
-            osc.amp(0); osc.start();
-            noiseOsc = new p5.Noise('brown');
-            noiseOsc.amp(0); noiseOsc.start();
-        }
-
-        function ensureAudio() {
-            if (getAudioContext().state !== 'running') {
-                getAudioContext().resume();
-            }
-        }
-
-        function updateScoreLabels() {
+                video = createCapture(constraints, function(stream) { 
+                    console.log("Camera OK");
+                    document.getElementById('debug-log').innerHTML += "カメラ起動成功<br>";
+                    initPoseNet();
+                });
+                video.size(CAM_W, CAM_H);
+                video.hide();
+                
+                setupSounds();
+                bossBaseY = height * 0.6;
+                
+            } catch(e) {
+                document.getElementById('debug-
