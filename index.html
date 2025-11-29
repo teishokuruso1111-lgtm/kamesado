@@ -2,38 +2,37 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>かめはめ波（AI PoseNet Ver）</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>かめはめ波（Lightweight Fix）</title>
     <style>
-        body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
-        canvas { display: block; }
+        body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; }
+        canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 10; }
         
         button { 
             background: linear-gradient(45deg, #FFD700, #FFA500); 
-            border: 3px solid #FFF; padding: 15px 50px; font-size: clamp(20px, 5vw, 30px); font-weight: 900; 
-            color: #333; border-radius: 50px; cursor: pointer; margin: 15px; pointer-events: auto; transition: transform 0.1s; box-shadow: 0 5px 15px rgba(0,0,0,0.5); text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
+            border: 3px solid #FFF; padding: 10px 40px; font-size: clamp(16px, 5vw, 24px); font-weight: 900; 
+            color: #333; border-radius: 50px; cursor: pointer; margin: 10px; pointer-events: auto; transition: transform 0.1s; box-shadow: 0 5px 15px rgba(0,0,0,0.5); text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
         }
         button:active { transform: scale(0.95); }
 
         .screen { 
             display: none; flex-direction: column; align-items: center; justify-content: center;
-            background: rgba(0, 0, 0, 0.85); padding: 5%; border-radius: 30px; 
-            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 5%; pointer-events: auto;
-            width: 80%; max-width: 600px;
+            background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 20px; 
+            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 10%; pointer-events: auto;
+            width: 85%; max-width: 500px; box-sizing: border-box;
         }
         
-        h1 { color: #00FF00; font-size: clamp(40px, 10vw, 80px); margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
-        p { color: white; font-size: clamp(16px, 4vw, 24px); margin-bottom: 30px; font-weight: bold; text-align: center; line-height: 1.5; }
+        h1 { color: #00FF00; font-size: clamp(30px, 8vw, 60px); margin: 0 0 10px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 2px; text-align: center; }
+        p { color: white; font-size: clamp(14px, 4vw, 18px); margin-bottom: 20px; font-weight: bold; text-align: center; line-height: 1.4; }
         
-        /* スコア表示なども画面サイズに合わせて可変に */
-        .score-val { font-size: clamp(40px, 8vw, 80px); color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 30px; }
+        .score-val { font-size: clamp(40px, 10vw, 80px); color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 20px; }
 
-        #charge-bar-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 80%; max-width: 500px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
+        #charge-bar-container { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
         
-        .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
-        #loading-msg { color: #00FF00; font-size: 20px; font-weight: bold; margin-top: 20px; display: none; }
+        .credit { margin-top: 15px; font-size: 10px; color: #AAA; text-align: center; }
+        #loading-msg { color: #00FF00; font-size: 16px; font-weight: bold; margin-top: 15px; display: none; }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
@@ -47,13 +46,13 @@
             <p>〜 AI モーションキャプチャ版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             <button onclick="startGame()" id="start-btn">ロード中...</button>
-            <div id="loading-msg">AIモデル準備中...<br>ちょっとまってね</div>
+            <div id="loading-msg">AI準備中...<br>初回は時間がかかります</div>
             <div class="credit">音楽素材：魔王魂 / AR Spark</div>
         </div>
 
         <div id="result-screen" class="screen">
             <h1>おしまい！</h1>
-            <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
+            <div style="font-size: 16px; color:#AAA;">今回のスコア</div>
             <div class="score-val"><span id="final-score">0</span></div>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-result">0</span></p>
             <button onclick="returnToTitle()">タイトルへ</button>
@@ -62,15 +61,14 @@
     </div>
 
     <script>
+        // ★軽量化設定：解像度を下げることでAndroidでも高速化
+        const CAM_W = 320; 
+        const CAM_H = 240;
+        
         let poseNet;
         let poses = [];
         let video;
         
-        // 画面サイズ管理
-        let vScale = 1.0; 
-        let videoX = 0;
-        let videoY = 0;
-
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
         let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
         
@@ -83,7 +81,7 @@
         let highScore = 0;
         let timeLeft = 60;
         let gameState = 'LOADING'; 
-        let trackedPos = [null, null]; // [左手, 右手]
+        let trackedPos = [null, null]; 
         
         let chargeTimer = 0;
         let isCharging = false;
@@ -113,21 +111,19 @@
             if(savedScore) highScore = parseInt(savedScore);
             updateScoreLabels();
             
-            // --- カメラ設定（GitHub上ならインカメラ） ---
             let constraints = {
                 video: {
                     facingMode: (location.hostname.includes("github.io")) ? "user" : undefined,
-                    width: { ideal: 640 }, // PoseNetは画質低めでOK（処理重視）
-                    height: { ideal: 480 }
+                    width: { ideal: CAM_W },
+                    height: { ideal: CAM_H }
                 },
                 audio: false
             };
             video = createCapture(constraints, function() { 
                 console.log("Camera OK"); 
-                // PoseNetの初期化
                 initPoseNet();
             });
-            video.size(640, 480);
+            video.size(CAM_W, CAM_H);
             video.hide();
             
             setupSounds();
@@ -135,9 +131,21 @@
         }
 
         function initPoseNet() {
-            // PoseNet起動
             document.getElementById('loading-msg').style.display = 'block';
-            poseNet = ml5.poseNet(video, modelReady);
+            // 軽量設定でPoseNetを起動
+            let options = {
+                architecture: 'MobileNetV1',
+                imageScaleFactor: 0.3,
+                outputStride: 16,
+                flipHorizontal: true,
+                minConfidence: 0.2,
+                maxPoseDetects: 1,
+                scoreThreshold: 0.2,
+                nmsRadius: 20,
+                detectionType: 'single',
+                multiplier: 0.50
+            };
+            poseNet = ml5.poseNet(video, options, modelReady);
             poseNet.on('pose', function(results) {
                 poses = results;
             });
@@ -188,23 +196,13 @@
         function draw() {
             background(0);
             
-            // ビデオの描画とスケーリング計算
+            // ★修正：カメラ映像を必ず全画面に描画（黒画面対策）
             if (video && video.width) {
-                // 画面を埋め尽くすようにアスペクト比を維持して拡大（object-fit: cover 相当）
-                let scaleW = width / video.width;
-                let scaleH = height / video.height;
-                vScale = max(scaleW, scaleH);
-                
-                let renderW = video.width * vScale;
-                let renderH = video.height * vScale;
-                videoX = (width - renderW) / 2;
-                videoY = (height - renderH) / 2;
-
                 push();
                 translate(width, 0);
                 scale(-1, 1);
-                // 映像の中心を合わせる
-                image(video, -(videoX + renderW), videoY, renderW, renderH); 
+                // 単純に引き伸ばして表示（バグ回避優先）
+                image(video, 0, 0, width, height); 
                 pop();
             }
 
@@ -218,6 +216,7 @@
                 updateGameLogic();    
                 drawGameObjects();
                 drawGameUI(); 
+                drawSkeletonDebug();
             } else if (gameState === 'WARNING') {
                 updatePoseTracking(); 
                 drawWarning();
@@ -225,7 +224,6 @@
                 updatePoseTracking(); 
                 drawCountdown();
             } else if (gameState === 'TITLE') {
-                // タイトル画面でも骨格を表示して動作確認できるようにする
                 updatePoseTracking();
                 drawSkeletonDebug();
             }
@@ -235,28 +233,19 @@
             trackedPos = [null, null];
             if (poses.length > 0) {
                 let pose = poses[0].pose;
-                // 手首の信頼度が0.2以上なら検出とみなす
-                if (pose.leftWrist.confidence > 0.2) {
-                    trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
-                }
-                if (pose.rightWrist.confidence > 0.2) {
-                    trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
-                }
+                if (pose.leftWrist.confidence > 0.2) trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
+                if (pose.rightWrist.confidence > 0.2) trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
             }
         }
 
-        // カメラ座標(640x480)を画面座標(windowWidth x windowHeight)に変換
         function transformCoords(x, y) {
-            // 左右反転しているのでX座標を反転
-            let flippedX = video.width - x;
-            
-            let screenX = videoX + flippedX * vScale;
-            let screenY = videoY + y * vScale;
+            // カメラ座標(320x240)を画面サイズにマップ
+            let screenX = map(x, 0, video.width, width, 0); // 左右反転
+            let screenY = map(y, 0, video.height, 0, height);
             return { x: screenX, y: screenY };
         }
 
         function drawSkeletonDebug() {
-            // 手の位置に円を表示（デバッグ用）
             noFill(); stroke(0, 255, 0); strokeWeight(3);
             if (trackedPos[0]) circle(trackedPos[0].x, trackedPos[0].y, 30);
             if (trackedPos[1]) circle(trackedPos[1].x, trackedPos[1].y, 30);
@@ -295,19 +284,14 @@
             updateBalloons();
             updateFloatingTexts();
             if (gameState === 'EXTRA2') updateBoss();
-            
-            // ゲーム中も手の位置を表示
-            drawSkeletonDebug();
         }
-
-        // --- 以下、ゲームロジックは変更なし ---
 
         function spawnWater() {
             balloons.push({
                 type: 'WATER',
-                x: random(100, width-100),
+                x: random(50, width-50),
                 y: height + 50,
-                r: 60,
+                r: min(width, height) * 0.1, // 画面サイズに合わせる
                 speed: 4,
                 c: color(0, 100, 255)
             });
@@ -317,7 +301,6 @@
             gameState = 'EXTRA1';
             balloons = [];
             extraTimer = 15;
-            score += 0; 
             if (soundLoaded.extra1 && bgmExtra1.isLoaded()) {
                 bgmExtra1.setVolume(0.5);
                 bgmExtra1.loop();
@@ -328,7 +311,7 @@
             gameState = 'EXTRA2';
             balloons = [];
             extraTimer = 15;
-            boss = { x: width/2, y: bossBaseY, w: 300, h: 300, hp: 2, justHit: false };
+            boss = { x: width/2, y: bossBaseY, w: min(width, height)*0.5, h: min(width, height)*0.5, hp: 2, justHit: false };
             bossIsDead = false;
             
             if (soundLoaded.extra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
@@ -346,30 +329,24 @@
             for (let i = balloons.length - 1; i >= 0; i--) {
                 let b = balloons[i];
                 b.y -= b.speed;
-                
                 let hit = false;
                 if (!isFiring) {
                     for (let p of trackedPos) {
-                        if (p && dist(p.x, p.y, b.x, b.y) < b.r + 50) hit = true;
+                        if (p && dist(p.x, p.y, b.x, b.y) < b.r + 80) hit = true; // 手の当たり判定拡大
                     }
                 }
-
-                if (hit) {
-                    popBalloon(i);
-                } else if (b.y < -b.r) {
-                    balloons.splice(i, 1);
-                }
+                if (hit) { popBalloon(i); } 
+                else if (b.y < -b.r) { balloons.splice(i, 1); }
             }
         }
 
         function spawnBalloon() {
+            let sizeBase = min(width, height) * 0.1;
             if (gameState === 'GAME') {
-                let r = random(40, 70);
-                balloons.push({ type: 'NORMAL', x: random(r, width-r), y: height+r, r: r, c: color(random(255), random(255), random(255)), speed: random(3, 7) });
+                balloons.push({ type: 'NORMAL', x: random(50, width-50), y: height+50, r: sizeBase, c: color(random(255), random(255), random(255)), speed: random(3, 7) });
             } else if (gameState === 'EXTRA1') {
                 let type = random() < 0.5 ? 'GASHIMA' : 'IGONERI';
-                let r = 60;
-                balloons.push({ type: type, x: random(r, width-r), y: height+r, r: r, c: color(255), speed: random(6, 10) });
+                balloons.push({ type: type, x: random(50, width-50), y: height+50, r: sizeBase, c: color(255), speed: random(6, 10) });
             }
         }
 
@@ -386,10 +363,8 @@
                 pts = 15;
                 addFloatingText("15", b.x, b.y, 40); 
             }
-            
             score += pts;
             balloons.splice(i, 1);
-            
             osc.freq(random(500, 1000));
             osc.amp(0.3, 0.05); setTimeout(()=>osc.amp(0, 0.05), 100);
         }
@@ -402,19 +377,13 @@
                 if (!boss.justHit) {
                     boss.hp--; 
                     boss.justHit = true; 
-
                     if (boss.hp <= 0) {
                         score += 31000000000;
                         bossIsDead = true;
                         extraTimer = 3; 
                         noiseOsc.amp(1.0, 0.1); setTimeout(()=>noiseOsc.amp(0, 1.0), 1000);
-                        
                         if (soundLoaded.boss && bgmBoss.isPlaying()) bgmBoss.stop();
-                        if (soundLoaded.victory && bgmVictory.isLoaded()) {
-                            bgmVictory.setVolume(1.0);
-                            bgmVictory.play();
-                        }
-                        
+                        if (soundLoaded.victory && bgmVictory.isLoaded()) { bgmVictory.setVolume(1.0); bgmVictory.play(); }
                         addFloatingText("310億", width/2, height/2, 180); 
                     } else {
                         addFloatingText("あと1回！", width/2, boss.y, 60);
@@ -430,13 +399,11 @@
             for (let b of balloons) {
                 push();
                 translate(b.x, b.y);
-                if (b.type === 'WATER') {
-                    drawImageOrShape(imgWater, imagesLoaded.water, "佐渡海洋深層水", b.r, color(0,100,255));
-                } else if (b.type === 'GASHIMA') {
-                    drawImageOrShape(imgEnemy1, imagesLoaded.enemy1, "ガシマ", b.r, color(255,0,0));
-                } else if (b.type === 'IGONERI') {
-                    drawImageOrShape(imgEnemy2, imagesLoaded.enemy2, "いごねり", b.r, color(0,255,0));
-                } else {
+                let drawSize = b.r * 2.5;
+                if (b.type === 'WATER') drawImageOrShape(imgWater, imagesLoaded.water, "佐渡海洋深層水", drawSize, color(0,100,255));
+                else if (b.type === 'GASHIMA') drawImageOrShape(imgEnemy1, imagesLoaded.enemy1, "ガシマ", drawSize, color(255,0,0));
+                else if (b.type === 'IGONERI') drawImageOrShape(imgEnemy2, imagesLoaded.enemy2, "いごねり", drawSize, color(0,255,0));
+                else {
                     fill(b.c); stroke(255); strokeWeight(3); circle(0, 0, b.r * 2);
                     noStroke(); fill(255, 100); circle(-b.r/3, -b.r/3, b.r/2);
                 }
@@ -449,7 +416,7 @@
                 let displayImg = bossIsDead ? imgBossEnd : imgBoss;
                 let loaded = bossIsDead ? imagesLoaded.bossEnd : imagesLoaded.boss;
                 let label = bossIsDead ? "撃破！" : "佐渡ヶ島(Boss)";
-                drawImageOrShape(displayImg, loaded, label, (boss.w/2) * 2, color(100));
+                drawImageOrShape(displayImg, loaded, label, (boss.w) * 2, color(100));
                 pop();
             }
 
@@ -457,39 +424,25 @@
 
             for (let ft of floatingTexts) {
                 push();
+                textAlign(CENTER, CENTER); textStyle(BOLD);
                 if (ft.val === "310億") {
-                    textSize(150); 
-                    fill(255, 215, 0); 
-                    stroke(255, 0, 0); 
-                    strokeWeight(10);
-                    drawingContext.shadowBlur = 30;
-                    drawingContext.shadowColor = "white";
-                } else if (ft.val === "あと1回！") {
-                    textSize(100);
-                    fill(255, 50, 50);
-                    stroke(255);
-                    strokeWeight(5);
+                    textSize(min(width,height)*0.2); fill(255, 215, 0); stroke(255, 0, 0); strokeWeight(10);
+                    drawingContext.shadowBlur = 30; drawingContext.shadowColor = "white";
                 } else {
-                    textSize(60); 
-                    fill(255, 255, 0); 
-                    stroke(0); 
-                    strokeWeight(3);
+                    textSize(min(width,height)*0.1); fill(255, 255, 0); stroke(0); strokeWeight(3);
                 }
-                textAlign(CENTER, CENTER);
-                textStyle(BOLD);
                 text(ft.val, ft.x, ft.y);
                 pop();
             }
         }
 
-        function drawImageOrShape(img, isLoaded, label, radius, altColor) {
+        function drawImageOrShape(img, isLoaded, label, size, altColor) {
             if (isLoaded) {
                 imageMode(CENTER);
-                image(img, 0, 0, radius*2.5, radius*2.5); 
+                image(img, 0, 0, size, size); 
             } else {
                 fill(altColor); stroke(255); strokeWeight(3);
-                if(label === "佐渡ヶ島(Boss)" || label === "撃破！") rect(0,0, radius*2, radius*2);
-                else circle(0, 0, radius * 2);
+                rectMode(CENTER); rect(0,0, size*0.8, size*0.8);
                 fill(255); noStroke(); textAlign(CENTER, CENTER); textSize(14);
                 text(label, 0, 0);
             }
@@ -510,10 +463,10 @@
         function drawWarning() {
             background(0, 0, 0, 20); 
             fill(255, 0, 0); stroke(255); strokeWeight(5);
-            textSize(150); textStyle(BOLD); textAlign(LEFT, CENTER);
+            textSize(min(width,height)*0.2); textStyle(BOLD); textAlign(LEFT, CENTER);
             text("WARNING!! EXTRA STAGE!!", warningTextX, height/2);
-            warningTextX -= 30; 
-            if (warningTextX < -2000) {
+            warningTextX -= width*0.05; 
+            if (warningTextX < -width*3) {
                 startExtraStage1();
             }
         }
@@ -525,7 +478,9 @@
                 if (fireTimer <= 0) {
                     isFiring = false; noiseOsc.amp(0, 0.5);
                     needsSeparation = true;
+                    // ★必殺技の当たり判定強化（ラグ対策）
                     if (gameState !== 'EXTRA2') { 
+                        // 画面内の敵をほぼ全て巻き込む
                         for (let i = balloons.length - 1; i >= 0; i--) {
                             popBalloon(i); 
                         }
@@ -538,19 +493,18 @@
                 let d = dist(p1.x, p1.y, p2.x, p2.y);
                 if (needsSeparation) {
                     stroke(0, 0, 50); strokeWeight(4); line(p1.x, p1.y, p2.x, p2.y);
-                    if (d > 300) needsSeparation = false;
+                    if (d > width*0.4) needsSeparation = false;
                     return; 
                 }
-                let lineAlpha = map(d, 0, 400, 255, 50);
-                let lineWeight = map(d, 0, 300, 20, 2);
-                stroke(0, 0, 100, lineAlpha); strokeWeight(lineWeight);
+                let lineAlpha = map(d, 0, width*0.5, 255, 50);
+                stroke(0, 0, 100, lineAlpha); strokeWeight(10);
                 line(p1.x, p1.y, p2.x, p2.y);
-                if (d < 150) {
+                if (d < width*0.2) {
                     if (!isCharging) { isCharging = true; osc.amp(0.3, 0.1); }
                     chargeTimer += 2;
                     let cx = (p1.x + p2.x)/2; let cy = (p1.y + p2.y)/2;
                     noFill(); stroke(180, 100, 100); strokeWeight(random(5, 15));
-                    let size = map(chargeTimer, 0, 60, 20, 400);
+                    let size = map(chargeTimer, 0, 60, 20, width*0.5);
                     circle(cx, cy, size);
                     osc.freq(map(chargeTimer, 0, 60, 200, 800)); 
                     if (chargeTimer > 60) {
@@ -567,10 +521,7 @@
         }
 
         function drawGameUI() {
-            // 文字サイズを画面幅に合わせて可変に
-            let textSizeBig = width * 0.05; // 画面幅の5%
-            let textSizeSmall = width * 0.03; // 画面幅の3%
-            
+            let textSizeBig = width * 0.05; 
             push();
             textAlign(LEFT, TOP); textSize(textSizeBig); textStyle(BOLD);
             fill(0); text("SCORE: " + formatScore(score), 32, 32);
@@ -580,17 +531,12 @@
             let t = (gameState === 'EXTRA1' || gameState === 'EXTRA2') ? extraTimer : timeLeft;
             let label = (gameState === 'EXTRA1' || gameState === 'EXTRA2') ? "EXTRA: " : "TIME: ";
             let col = (gameState === 'EXTRA1' || gameState === 'EXTRA2') ? color(255, 0, 0) : color(0, 255, 0);
-
             fill(0); text(label + t, width-32, 32);
             fill(col); text(label + t, width-30, 30);
 
-            // チャージバー
             document.getElementById('charge-bar-container').style.display = 'block';
-            let barW = document.getElementById('charge-bar-container').offsetWidth;
-            let barH = document.getElementById('charge-bar-container').offsetHeight;
             let barY = height - 60;
             
-            // HTML側のバーを更新
             if (needsSeparation) {
                 document.getElementById('charge-bar').style.width = '100%';
                 document.getElementById('charge-bar').style.background = '#000055';
@@ -628,16 +574,16 @@
             else {
                 text("スタート！", width/2, height/2);
                 if (frameCount % 60 === 30) { 
+                    // ゲーム開始処理
                     gameState = 'GAME'; score = 0; timeLeft = 60; balloons = [];
                     hasCollectedWater = false; waterSpawned = false; bossIsDead = false;
+                    extraTimer = 0; boss = null; needsSeparation = false;
                     
                     if(soundLoaded.boss && bgmBoss.isPlaying()) bgmBoss.stop();
                     if(soundLoaded.victory && bgmVictory.isPlaying()) bgmVictory.stop();
                     if(soundLoaded.extra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
-                    
                     if(soundLoaded.normal && bgmNormal.isLoaded()) {
-                        bgmNormal.setVolume(0.5);
-                        bgmNormal.loop();
+                        bgmNormal.setVolume(0.5); bgmNormal.loop();
                     }
                 }
             }
@@ -647,16 +593,22 @@
             if (!modelIsReady) return;
             ensureAudio();
             document.getElementById('title-screen').style.display = 'none';
-            // キャリブレーション不要！いきなりカウントダウンへ
+            document.getElementById('result-screen').style.display = 'none';
             gameState = 'COUNTDOWN'; countdownVal = 3;
             document.getElementById('charge-bar-container').style.display = 'block';
         }
 
         function returnToTitle() { 
             gameState = 'TITLE'; 
+            // BGM停止
+            if(soundLoaded.normal && bgmNormal.isPlaying()) bgmNormal.stop();
+            if(soundLoaded.extra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
+            if(soundLoaded.boss && bgmBoss.isPlaying()) bgmBoss.stop();
             if(soundLoaded.victory && bgmVictory.isPlaying()) bgmVictory.stop();
+
             document.getElementById('result-screen').style.display = 'none'; 
             document.getElementById('title-screen').style.display = 'flex'; 
+            document.getElementById('charge-bar-container').style.display = 'none';
         }
 
         function windowResized() { 
