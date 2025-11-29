@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Simple Robust）</title>
+    <title>かめはめ波（Final Repair）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
         
@@ -49,7 +49,7 @@
             if(el) el.innerHTML += msg + " | ";
         }
         window.onerror = function(msg, url, line) {
-            log("System Error: " + msg);
+            log("SystemErr: " + msg);
         };
     </script>
 
@@ -58,7 +58,7 @@
     <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
 </head>
 <body>
-    <div id="debug-log">Page Init...<br></div>
+    <div id="debug-log">HTML Init...<br></div>
     
     <div id="ui-layer">
         <div id="title-screen" class="screen">
@@ -66,8 +66,8 @@
             <p>〜 AI モーションキャプチャ版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             
-            <button id="init-btn">カメラ起動</button>
-            <button id="start-btn" class="hidden">あそぶ！</button>
+            <button onclick="bootGame()" id="init-btn">カメラ起動</button>
+            <button onclick="startGame()" id="start-btn" class="hidden">あそぶ！</button>
             
             <div id="loading-msg" class="hidden">AI準備中...</div>
             <div class="credit">音楽素材：魔王魂 / AR Spark</div>
@@ -78,14 +78,13 @@
             <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
             <div class="score-val"><span id="final-score">0</span></div>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-result">0</span></p>
-            <button id="return-btn">タイトルへ</button>
+            <button onclick="returnToTitle()">タイトルへ</button>
         </div>
         <div id="charge-bar-container"><div id="charge-bar"></div></div>
     </div>
 
     <script>
-        // ここからスクリプト開始
-        log("Script Reading...");
+        log("Script Loading...");
 
         const CAM_W = 640; 
         const CAM_H = 480;
@@ -127,23 +126,15 @@
         let bossIsDead = false;
         let modelIsReady = false;
 
-        // ★ボタンイベントの設定
-        window.addEventListener('load', function() {
-            log("Window Loaded");
-            document.getElementById('init-btn').onclick = startCameraSequence;
-            document.getElementById('start-btn').onclick = startGameSystem;
-            document.getElementById('return-btn').onclick = returnToTitleSystem;
-        });
-
-        // ■■■ カメラ起動シーケンス ■■■
-        function startCameraSequence() {
-            log("Button Clicked");
+        // ■■■ ボタン操作関数 ■■■
+        function bootGame() {
+            log("Boot Clicked");
             document.getElementById('init-btn').classList.add('hidden');
             document.getElementById('loading-msg').classList.remove('hidden');
             document.getElementById('loading-msg').innerText = "カメラ許可を求めています...";
 
             if (typeof userStartAudio !== 'undefined') {
-                userStartAudio().then(() => log("Audio Started"));
+                userStartAudio().then(() => log("Audio OK"));
             }
 
             let constraints = {
@@ -156,159 +147,4 @@
             }
 
             video = createCapture(constraints, function(stream) { 
-                log("Camera OK");
-                document.getElementById('loading-msg').innerText = "AIモデル読み込み中...";
-                initPoseNet();
-            });
-            
-            if(video) {
-                video.size(CAM_W, CAM_H);
-                video.hide();
-                if(video.elt) video.elt.setAttribute('playsinline', '');
-            }
-            
-            setupSounds();
-        }
-
-        function initPoseNet() {
-            let options = {
-                architecture: 'MobileNetV1', imageScaleFactor: 0.3, outputStride: 16,
-                flipHorizontal: true, minConfidence: 0.5, scoreThreshold: 0.5,
-                detectionType: 'single', multiplier: 0.75
-            };
-            
-            try {
-                poseNet = ml5.poseNet(video, options, modelReady);
-                poseNet.on('pose', function(results) { poses = results; });
-            } catch(e) {
-                log("ML5 Err: " + e);
-            }
-        }
-
-        function modelReady() {
-            log("AI Ready!");
-            modelIsReady = true;
-            document.getElementById('loading-msg').classList.add('hidden');
-            document.getElementById('start-btn').classList.remove('hidden');
-        }
-
-        function startGameSystem() {
-            document.getElementById('title-screen').classList.add('hidden');
-            document.getElementById('result-screen').classList.add('hidden');
-            gameState = 'COUNTDOWN'; countdownVal = 3;
-            document.getElementById('charge-bar-container').style.display = 'block';
-        }
-
-        function returnToTitleSystem() { 
-            gameState = 'TITLE'; 
-            stopAllSounds();
-            document.getElementById('result-screen').classList.add('hidden');
-            document.getElementById('title-screen').classList.remove('hidden');
-            document.getElementById('title-screen').style.display = 'flex'; 
-            document.getElementById('charge-bar-container').style.display = 'none';
-            document.getElementById('init-btn').classList.add('hidden');
-            document.getElementById('start-btn').classList.remove('hidden');
-            document.getElementById('loading-msg').classList.add('hidden');
-        }
-
-        // ■■■ P5.js ■■■
-        function setup() {
-            log("P5 Setup");
-            let c = createCanvas(windowWidth, windowHeight);
-            c.style('display', 'block');
-            colorMode(RGB, 255, 255, 255, 255);
-            background(0);
-
-            loadResources();
-
-            let savedScore = localStorage.getItem('kamehameha_highscore');
-            if(savedScore) highScore = parseInt(savedScore);
-            updateScoreLabels();
-            
-            bossBaseY = height * 0.6;
-        }
-
-        function loadResources() {
-            imgWater = loadImage('water.png', ()=>{}, ()=>{ log("Err:water"); });
-            imgEnemy1 = loadImage('enemy1.png', ()=>{}, ()=>{ log("Err:enm1"); });
-            imgEnemy2 = loadImage('enemy2.png', ()=>{}, ()=>{ log("Err:enm2"); });
-            imgBoss = loadImage('boss.png', ()=>{}, ()=>{ log("Err:boss"); });
-            imgBossEnd = loadImage('boss_end.png', ()=>{}, ()=>{ log("Err:boss_e"); });
-            
-            bgmNormal = loadSound('normal_bgm.mp3', ()=>{}, ()=>{ log("Err:bgm_n"); });
-            bgmExtra1 = loadSound('extra1_bgm.mp3', ()=>{}, ()=>{ log("Err:bgm_ex"); });
-            bgmBoss = loadSound('boss_bgm.mp3', ()=>{}, ()=>{ log("Err:bgm_b"); });
-            bgmVictory = loadSound('victory.mp3', ()=>{}, ()=>{ log("Err:bgm_v"); });
-        }
-
-        function setupSounds() {
-            osc = new p5.Oscillator('sine');
-            osc.amp(0); osc.start();
-            noiseOsc = new p5.Noise('brown');
-            noiseOsc.amp(0); noiseOsc.start();
-        }
-
-        function stopAllSounds() {
-            if(bgmNormal && bgmNormal.isPlaying()) bgmNormal.stop();
-            if(bgmExtra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
-            if(bgmBoss && bgmBoss.isPlaying()) bgmBoss.stop();
-            if(bgmVictory && bgmVictory.isPlaying()) bgmVictory.stop();
-        }
-
-        function updateScoreLabels() {
-            let elT = document.getElementById('high-score-title');
-            let elR = document.getElementById('high-score-result');
-            if(elT) elT.innerText = formatScore(highScore);
-            if(elR) elR.innerText = formatScore(highScore);
-        }
-
-        function formatScore(n) {
-            return n.toLocaleString();
-        }
-
-        function draw() {
-            background(0);
-            
-            if (video && video.width) {
-                let scaleW = width / video.width;
-                let scaleH = height / video.height;
-                vScale = max(scaleW, scaleH);
-                let renderW = video.width * vScale;
-                let renderH = video.height * vScale;
-                videoX = (width - renderW) / 2;
-                videoY = (height - renderH) / 2;
-
-                push();
-                translate(width, 0);
-                scale(-1, 1);
-                image(video, -(videoX + renderW), videoY, renderW, renderH); 
-                pop();
-                
-                fill(0, 150); 
-                noStroke();
-                rect(0, 0, width, height);
-            }
-
-            if (gameState === 'INIT' || gameState === 'LOADING' || gameState === 'TITLE') {
-                updatePoseTracking();
-                drawSkeletonDebug();
-            } else if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
-                updatePoseTracking(); 
-                updateGameLogic();    
-                drawGameObjects();
-                drawGameUI(); 
-                drawSkeletonDebug();
-            } else if (gameState === 'WARNING') {
-                updatePoseTracking(); 
-                drawWarning();
-            } else if (gameState === 'COUNTDOWN') {
-                updatePoseTracking(); 
-                drawCountdown();
-            }
-        }
-
-        function updatePoseTracking() {
-            trackedPos = [null, null];
-            if (poses.length > 0) {
-                let pose = poses[0].pose;
-                if (pose.leftWrist.confidence > 0.1) trackedPos[0] = transform
+                log("Cam OK");
