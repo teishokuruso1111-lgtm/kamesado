@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（HSV Tracking Ver）</title>
+    <title>かめはめ波（Bug Fix Final）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
         
@@ -26,12 +26,13 @@
         }
         .hidden { display: none !important; }
         
+        /* キャリブレーション画面 */
         #calibration-screen {
             display: none; width: 100%; height: 100%;
             flex-direction: column; justify-content: space-between; align-items: center;
             padding: 40px; box-sizing: border-box;
-            background: none !important; border: none !important; box-shadow: none !important; margin-top: 0 !important;
-            pointer-events: none;
+            /* 背景なし（カメラが見えるように） */
+            pointer-events: none; 
         }
         
         .calib-text {
@@ -86,16 +87,15 @@
         const CAM_H = 480;
         const SKIP_STEP = 4; 
         
-        // ★HSV判定用の許容範囲
-        const HUE_THRESH = 20; // 色味のズレ許容範囲 (0-360度中)
-        const SAT_THRESH = 30; // 彩度の最低ライン (白/グレー除外用)
-        const VAL_THRESH = 30; // 明度の最低ライン (黒除外用)
+        const HUE_THRESH = 20; 
+        const SAT_THRESH = 30; 
+        const VAL_THRESH = 30; 
         
         const IMG_RATIO = 369 / 676; 
 
         // --- 変数 ---
         let video;
-        let targetHSV = null; // RGBではなくHSVで保存
+        let targetHSV = null; 
         let trackedPos = [null, null]; 
         
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
@@ -139,7 +139,6 @@
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
-            // RGBモードのまま計算でHSV変換します（p5のcolorMode変更は混乱の元になるため）
             colorMode(RGB, 255, 255, 255, 255);
             background(0);
 
@@ -147,6 +146,7 @@
             if(savedScore) highScore = parseInt(savedScore);
             updateScoreLabels();
             
+            // カメラ設定
             let constraints = {
                 video: { width: {ideal: CAM_W}, height: {ideal: CAM_H} },
                 audio: false
@@ -181,8 +181,10 @@
         }
 
         function updateScoreLabels() {
-            document.getElementById('high-score-title').innerText = formatScore(highScore);
-            document.getElementById('high-score-result').innerText = formatScore(highScore);
+            let t = document.getElementById('high-score-title');
+            let r = document.getElementById('high-score-result');
+            if(t) t.innerText = formatScore(highScore);
+            if(r) r.innerText = formatScore(highScore);
         }
 
         function formatScore(n) { return n.toLocaleString(); }
@@ -190,6 +192,7 @@
         function draw() {
             background(0);
             
+            // 1. カメラ描画（★修正：暗くせずそのまま表示）
             if (video && video.width) {
                 let scaleW = width / video.width;
                 let scaleH = height / video.height;
@@ -202,7 +205,7 @@
                 push();
                 translate(width, 0);
                 scale(-1, 1);
-                tint(200); // 少し暗く
+                tint(255); // 255=Max (明るさそのまま)
                 image(video, -(x + w), y, w, h);
                 pop();
                 
@@ -211,6 +214,7 @@
                 window.vidY = y;
             }
 
+            // 2. 状態分岐
             if (gameState === 'CALIBRATION') {
                 drawCalibrationGuide();
                 processVideoHSV();
@@ -228,16 +232,13 @@
             }
         }
 
-        // ★★★ HSV 色変換・追跡ロジック ★★★
-
-        // RGB(0-255) を HSV(0-360, 0-100, 0-100) に変換する関数
+        // --- 色追跡 ---
         function rgbToHsv(r, g, b) {
             r /= 255, g /= 255, b /= 255;
             let max = Math.max(r, g, b), min = Math.min(r, g, b);
             let h, s, v = max;
             let d = max - min;
             s = max == 0 ? 0 : d / max;
-
             if (max == min) {
                 h = 0; 
             } else {
@@ -253,12 +254,10 @@
 
         function processVideoHSV() {
             if (!targetHSV || !video || video.width === 0) return;
-            
             video.loadPixels();
             if (video.pixels.length === 0) return;
             
             let matchingPixels = [];
-            
             for (let y = 0; y < video.height; y += SKIP_STEP) {
                 for (let x = 0; x < video.width; x += SKIP_STEP) {
                     let i = (y * video.width + x) * 4;
@@ -266,22 +265,15 @@
                     let g = video.pixels[i+1];
                     let b = video.pixels[i+2];
                     
-                    // ピクセルをHSVに変換
                     let hsv = rgbToHsv(r, g, b);
-                    let h = hsv[0]; // 色相 (0-360)
-                    let s = hsv[1]; // 彩度 (0-100)
-                    let v = hsv[2]; // 明度 (0-100)
+                    let h = hsv[0]; let s = hsv[1]; let v = hsv[2];
 
-                    // 判定ロジック
-                    // 1. 彩度と明度が低すぎる（白・黒・グレー）は無視
                     if (s < SAT_THRESH || v < VAL_THRESH) continue;
-
-                    // 2. 色相の差を計算 (360度のリング状なので差の計算に注意)
                     let diff = Math.abs(h - targetHSV[0]);
-                    if (diff > 180) diff = 360 - diff; // 350度と10度の差は20度
+                    if (diff > 180) diff = 360 - diff;
 
                     if (diff < HUE_THRESH) {
-                        let screenX = width - (window.vidX + x * window.vidScale); // 反転
+                        let screenX = width - (window.vidX + x * window.vidScale); 
                         let screenY = window.vidY + y * window.vidScale;
                         matchingPixels.push({x: screenX, y: screenY});
                     }
@@ -292,7 +284,6 @@
                 trackedPos = [null, null];
                 return;
             }
-            
             matchingPixels.sort((a, b) => a.x - b.x);
             let mid = Math.floor(matchingPixels.length / 2);
             
@@ -311,9 +302,7 @@
 
         function getTargetHSV() {
             if (!video || video.pixels.length === 0) return null;
-            // 画面中央の色を取得して平均化
             let sumR=0, sumG=0, sumB=0, count=0;
-            let size = 20;
             let cx = video.width / 2;
             let cy = video.height / 2;
 
@@ -329,7 +318,6 @@
                 }
             }
             if (count === 0) return null;
-            // 平均RGBをHSVに変換
             return rgbToHsv(sumR/count, sumG/count, sumB/count);
         }
         
@@ -337,7 +325,6 @@
             rectMode(CENTER); noFill(); stroke(255); strokeWeight(5);
             rect(width/2, height/2, 150, 150);
             
-            // 今の色を表示（RGBで表示）
             video.loadPixels();
             let cx = video.width / 2; 
             let cy = video.height / 2;
@@ -349,7 +336,6 @@
             }
         }
 
-        // --- ゲーム進行 ---
         function updateGameLogic() {
             if (frameCount % 60 === 0) {
                 if (gameState === 'GAME' && timeLeft > 0) timeLeft--;
@@ -487,9 +473,15 @@
                     fill(100); rect(boss.x, boss.y, boss.w, boss.w);
                 }
             }
+            // ★修正：ビーム描画時のモードリセット
             if(isFiring) {
-                noStroke(); fill(255, 255, 0, 150); rect(0, 0, width, height);
+                push();
+                rectMode(CORNER); // 強制的に左上基準にする
+                noStroke(); fill(255, 255, 0, 150); 
+                rect(0, 0, width, height);
+                pop();
             }
+            
             for (let ft of floatingTexts) {
                 push(); textAlign(CENTER, CENTER); textStyle(BOLD);
                 if (ft.val === "310億") {
@@ -599,11 +591,14 @@
         }
         function resetCalibration() { targetHSV = null; }
         
-        function mousePressed() {
+        function mousePressed(e) {
             ensureAudio(); 
+            
+            // ★修正：ボタンを押した時は色登録しない（誤作動防止）
+            if (e.target.tagName === 'BUTTON') return;
+
             if (gameState === 'CALIBRATION') {
                 video.loadPixels();
-                // HSVでターゲット色を登録
                 targetHSV = getTargetHSV();
                 if (targetHSV) {
                     document.getElementById('calibration-screen').style.display = 'none';
@@ -621,6 +616,7 @@
             
             document.getElementById('result-title').innerText = bossIsDead ? "完全クリア！" : "タイムアップ";
             document.getElementById('final-score').innerText = formatScore(score);
+            
             document.getElementById('result-screen').classList.remove('hidden');
             document.getElementById('result-screen').style.display = 'flex';
             document.getElementById('charge-bar-container').style.display = 'none';
@@ -639,14 +635,19 @@
             if(soundLoaded.boss) bgmBoss.stop();
             if(soundLoaded.win) bgmVictory.stop();
 
+            // 画面リセット
+            document.getElementById('result-screen').classList.add('hidden'); 
             document.getElementById('result-screen').style.display = 'none'; 
+            
             document.getElementById('title-screen').style.display = 'flex'; 
             document.getElementById('charge-bar-container').style.display = 'none';
             
+            // 変数リセット
             targetHSV = null;
             balloons = [];
             boss = null;
             hasCollectedWater = false;
+            score = 0;
         }
 
         function windowResized() { resizeCanvas(windowWidth, windowHeight); }
