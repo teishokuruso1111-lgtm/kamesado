@@ -3,44 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Grand Master）</title>
+    <title>かめはめ波（Visual Debug）</title>
     <style>
-        body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
+        /* 背景を真っ黒ではなく、濃いグレーにする（動作確認用） */
+        body { margin: 0; padding: 0; background: #333; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
         
-        #debug-log {
-            position: absolute; top: 0; left: 0; width: 100%; 
-            background: rgba(0,0,0,0.5); color: #00FF00; 
-            font-size: 12px; z-index: 10000; pointer-events: none;
-            white-space: pre-wrap; padding: 5px; border-bottom: 1px solid #444;
-            display: none; /* 通常は非表示 */
-        }
-
         canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 10; }
         
         button { 
             background: linear-gradient(45deg, #FFD700, #FFA500); 
             border: 3px solid #FFF; padding: 15px 50px; font-size: clamp(20px, 5vw, 30px); font-weight: 900; 
-            color: #333; border-radius: 50px; cursor: pointer; margin: 15px; pointer-events: auto; transition: transform 0.1s; box-shadow: 0 5px 15px rgba(0,0,0,0.5); text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
+            color: #333; border-radius: 50px; cursor: pointer; margin: 15px; pointer-events: auto; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5); pointer-events: auto;
         }
         button:active { transform: scale(0.95); }
-        button:disabled { background: #555; color: #999; cursor: wait; border-color: #777; }
 
         .screen { 
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 30px; 
-            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 5%; pointer-events: auto;
-            width: 90%; max-width: 600px; box-sizing: border-box;
+            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 10%; 
+            width: 90%; max-width: 600px; box-sizing: border-box; pointer-events: auto;
         }
         .hidden { display: none !important; }
         
         h1 { color: #00FF00; font-size: clamp(40px, 10vw, 80px); margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
-        p { color: white; font-size: clamp(16px, 4vw, 24px); margin-bottom: 30px; font-weight: bold; text-align: center; line-height: 1.5; }
         .score-val { font-size: clamp(40px, 10vw, 80px); color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 30px; }
-        #charge-bar-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
-        #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
-        .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
-        #loading-msg { color: #00FF00; font-size: 18px; font-weight: bold; margin-top: 20px; }
+        
+        /* 画面左上のデバッグ表示 */
+        #status-display {
+            position: absolute; top: 0; left: 0; padding: 10px;
+            background: rgba(0,0,0,0.5); font-size: 14px; color: lime;
+            text-align: left; z-index: 20; pointer-events: none;
+        }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
@@ -48,648 +43,343 @@
     <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
 </head>
 <body>
-    <div id="debug-log"></div>
-    
+    <div id="status-display">System Init...</div>
+
     <div id="ui-layer">
         <div id="title-screen" class="screen">
             <h1>かめはめ波</h1>
-            <p>〜 AI モーションキャプチャ版 〜</p>
-            <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
+            <p>〜 最終デバッグ版 〜</p>
+            <p>High Score: <span id="high-score-title">0</span></p>
             
-            <button id="init-btn" disabled>準備中...</button>
+            <button id="init-btn">カメラ起動</button>
             <button id="start-btn" class="hidden">あそぶ！</button>
             
-            <div id="loading-msg" class="hidden">AI準備中...</div>
-            <div class="credit">音楽素材：魔王魂 / AR Spark</div>
+            <div id="loading-msg" class="hidden">準備中...</div>
         </div>
 
         <div id="result-screen" class="screen hidden">
             <h1>おしまい！</h1>
-            <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
             <div class="score-val"><span id="final-score">0</span></div>
-            <p style="color:#FFFF00">ハイスコア: <span id="high-score-result">0</span></p>
             <button id="return-btn">タイトルへ</button>
         </div>
-        <div id="charge-bar-container"><div id="charge-bar"></div></div>
     </div>
 
     <script>
-        // エラーログ
-        function log(msg) {
+        // デバッグ表示更新関数
+        function updateStatus(msg) {
+            let el = document.getElementById('status-display');
+            if(el) el.innerHTML = msg;
             console.log(msg);
-            var el = document.getElementById('debug-log');
-            if(el) el.innerHTML += msg + " | ";
         }
-        window.onerror = function(msg, url, line) { log("Err:" + msg); };
 
-        const CAM_W = 640; 
-        const CAM_H = 480;
-        
+        // 変数定義
+        let video;
         let poseNet;
         let poses = [];
-        let video;
-        let vScale = 1.0; 
-        let videoX = 0, videoY = 0;
+        let trackedPos = [null, null];
 
+        // 画像・音楽
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
-        let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
+        let bgmNormal, bgmExtra1, bgmBoss, bgmVictory;
         
-        let imagesLoaded = { water: false, enemy1: false, enemy2: false, boss: false, bossEnd: false };
-        let soundLoaded = { normal: false, extra1: false, boss: false, victory: false };
-
+        // ゲーム状態
         let balloons = [];
-        let floatingTexts = []; 
         let score = 0;
         let highScore = 0;
-        let timeLeft = 60;
-        let gameState = 'INIT'; 
-        let trackedPos = [null, null]; 
+        let gameState = 'INIT';
+        let chargeTimer = 0, isCharging = false, isFiring = false, fireTimer = 0;
+        let extraTimer = 0, boss = null, bossIsDead = false;
+        let needsSeparation = false;
         
-        let chargeTimer = 0;
-        let isCharging = false;
-        let isFiring = false;
-        let fireTimer = 0;
-        let cooldownTimer = 0;
-        let needsSeparation = false; 
+        // 音（オシレーター）
         let osc, noiseOsc;
 
-        let hasCollectedWater = false;
-        let waterSpawned = false;
-        let warningTextX = 0;
-        let extraTimer = 0;
-        let boss = null;
-        let bossBaseY = 0; 
-        let bossIsDead = false;
-        let modelIsReady = false;
-
-        // ★ボタンイベント登録（確実に行う）
+        // ★★★ 起動処理 ★★★
         window.onload = function() {
-            let btn = document.getElementById('init-btn');
-            btn.innerText = "カメラ起動";
-            btn.disabled = false;
-            btn.onclick = startCameraSequence;
-
-            document.getElementById('start-btn').onclick = startGameSystem;
-            document.getElementById('return-btn').onclick = returnToTitleSystem;
+            updateStatus("Window Loaded. Waiting for button...");
+            document.getElementById('init-btn').onclick = startSystem;
+            document.getElementById('start-btn').onclick = gameStart;
+            document.getElementById('return-btn').onclick = returnTitle;
         };
 
-        function startCameraSequence() {
+        function startSystem() {
             document.getElementById('init-btn').classList.add('hidden');
             document.getElementById('loading-msg').classList.remove('hidden');
-            document.getElementById('loading-msg').innerText = "カメラ許可を求めています...";
+            updateStatus("Starting Camera...");
 
-            if (typeof userStartAudio !== 'undefined') {
-                userStartAudio();
-            }
+            // オーディオ起動
+            if (typeof userStartAudio !== 'undefined') userStartAudio();
 
+            // カメラ設定 (シンプルに)
             let constraints = {
-                video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
+                video: {
+                    facingMode: (location.hostname.includes("github.io")) ? "user" : undefined,
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                },
                 audio: false
             };
-            
-            if (location.hostname.includes("github.io")) {
-                constraints.video.facingMode = "user";
-            }
 
-            video = createCapture(constraints, function(stream) { 
-                document.getElementById('loading-msg').innerText = "AIモデル読み込み中...";
+            video = createCapture(constraints, function(stream) {
+                updateStatus("Camera OK. Loading AI...");
                 initPoseNet();
             });
+            video.hide(); // キャンバスに描くので隠す
             
-            if(video) {
-                video.size(CAM_W, CAM_H);
-                video.hide();
-                if(video.elt) video.elt.setAttribute('playsinline', '');
+            // iPad対策
+            if(video.elt) {
+                video.elt.setAttribute('playsinline', '');
+                video.elt.setAttribute('autoplay', '');
             }
-            
+
             setupSounds();
         }
 
         function initPoseNet() {
+            // PoseNet設定
             let options = {
-                architecture: 'MobileNetV1', imageScaleFactor: 0.3, outputStride: 16,
-                flipHorizontal: true, minConfidence: 0.5, scoreThreshold: 0.5,
-                detectionType: 'single', multiplier: 0.75
+                architecture: 'MobileNetV1',
+                imageScaleFactor: 0.3,
+                outputStride: 16,
+                flipHorizontal: true,
+                minConfidence: 0.3,
+                detectionType: 'single'
             };
             
             try {
-                poseNet = ml5.poseNet(video, options, modelReady);
-                poseNet.on('pose', function(results) { poses = results; });
+                poseNet = ml5.poseNet(video, options, () => {
+                    updateStatus("AI Ready! Click Start.");
+                    document.getElementById('loading-msg').classList.add('hidden');
+                    document.getElementById('start-btn').classList.remove('hidden');
+                });
+                poseNet.on('pose', (results) => { poses = results; });
             } catch(e) {
-                log("ML5 Err: " + e);
+                updateStatus("AI Error: " + e);
             }
         }
 
-        function modelReady() {
-            modelIsReady = true;
-            document.getElementById('loading-msg').classList.add('hidden');
-            document.getElementById('start-btn').classList.remove('hidden');
-        }
-
-        function startGameSystem() {
+        function gameStart() {
+            gameState = 'PLAY';
+            score = 0;
+            balloons = [];
+            
             document.getElementById('title-screen').classList.add('hidden');
             document.getElementById('result-screen').classList.add('hidden');
-            gameState = 'COUNTDOWN'; countdownVal = 3;
-            document.getElementById('charge-bar-container').style.display = 'block';
+            
+            // BGM再生
+            if(bgmNormal && bgmNormal.isLoaded()) {
+                bgmNormal.setVolume(0.5);
+                bgmNormal.loop();
+            }
         }
 
-        function returnToTitleSystem() { 
-            gameState = 'TITLE'; 
+        function returnTitle() {
+            gameState = 'TITLE';
             stopAllSounds();
             document.getElementById('result-screen').classList.add('hidden');
             document.getElementById('title-screen').classList.remove('hidden');
-            document.getElementById('title-screen').style.display = 'flex'; 
-            document.getElementById('charge-bar-container').style.display = 'none';
-            document.getElementById('init-btn').classList.add('hidden');
-            document.getElementById('start-btn').classList.remove('hidden');
-            document.getElementById('loading-msg').classList.add('hidden');
+            document.getElementById('init-btn').classList.add('hidden'); // カメラは起動済みなので
+            document.getElementById('start-btn').classList.remove('hidden'); // スタートボタンを表示
         }
 
-        // --- P5.js Main ---
+        // ★★★ P5.js Main ★★★
 
         function setup() {
-            let c = createCanvas(windowWidth, windowHeight);
-            c.style('display', 'block');
-            colorMode(RGB, 255, 255, 255, 255);
-            background(0);
-
-            loadResources();
+            createCanvas(windowWidth, windowHeight);
+            
+            // リソース読み込み (エラーでも止まらない)
+            imgWater = loadImage('water.png');
+            imgEnemy1 = loadImage('enemy1.png');
+            imgEnemy2 = loadImage('enemy2.png');
+            imgBoss = loadImage('boss.png');
+            imgBossEnd = loadImage('boss_end.png');
+            
+            bgmNormal = loadSound('normal_bgm.mp3');
+            bgmExtra1 = loadSound('extra1_bgm.mp3');
+            bgmBoss = loadSound('boss_bgm.mp3');
+            bgmVictory = loadSound('victory.mp3');
 
             let savedScore = localStorage.getItem('kamehameha_highscore');
             if(savedScore) highScore = parseInt(savedScore);
-            updateScoreLabels();
-            
-            bossBaseY = height * 0.6;
-        }
-
-        function loadResources() {
-            imgWater = loadImage('water.png', ()=>{}, ()=>{ log("No:water"); });
-            imgEnemy1 = loadImage('enemy1.png', ()=>{}, ()=>{ log("No:enm1"); });
-            imgEnemy2 = loadImage('enemy2.png', ()=>{}, ()=>{ log("No:enm2"); });
-            imgBoss = loadImage('boss.png', ()=>{}, ()=>{ log("No:boss"); });
-            imgBossEnd = loadImage('boss_end.png', ()=>{}, ()=>{ log("No:boss_e"); });
-            
-            bgmNormal = loadSound('normal_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_n"); });
-            bgmExtra1 = loadSound('extra1_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_ex"); });
-            bgmBoss = loadSound('boss_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_b"); });
-            bgmVictory = loadSound('victory.mp3', ()=>{}, ()=>{ log("No:bgm_v"); });
+            document.getElementById('high-score-title').innerText = highScore;
         }
 
         function setupSounds() {
-            osc = new p5.Oscillator('sine');
-            osc.amp(0); osc.start();
-            noiseOsc = new p5.Noise('brown');
-            noiseOsc.amp(0); noiseOsc.start();
+            osc = new p5.Oscillator('sine'); osc.amp(0); osc.start();
+            noiseOsc = new p5.Noise('brown'); noiseOsc.amp(0); noiseOsc.start();
         }
 
         function stopAllSounds() {
-            if(bgmNormal && bgmNormal.isPlaying()) bgmNormal.stop();
-            if(bgmExtra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
-            if(bgmBoss && bgmBoss.isPlaying()) bgmBoss.stop();
-            if(bgmVictory && bgmVictory.isPlaying()) bgmVictory.stop();
-        }
-
-        function updateScoreLabels() {
-            let elT = document.getElementById('high-score-title');
-            let elR = document.getElementById('high-score-result');
-            if(elT) elT.innerText = formatScore(highScore);
-            if(elR) elR.innerText = formatScore(highScore);
-        }
-
-        function formatScore(n) {
-            return n.toLocaleString();
+            if(bgmNormal) bgmNormal.stop();
+            if(bgmExtra1) bgmExtra1.stop();
+            if(bgmBoss) bgmBoss.stop();
+            if(bgmVictory) bgmVictory.stop();
         }
 
         function draw() {
-            background(0);
-            
-            // カメラ映像の描画
-            if (video && video.width) {
-                let scaleW = width / video.width;
-                let scaleH = height / video.height;
-                vScale = max(scaleW, scaleH);
-                let renderW = video.width * vScale;
-                let renderH = video.height * vScale;
-                videoX = (width - renderW) / 2;
-                videoY = (height - renderH) / 2;
+            // 背景をグレーにする（黒だと何も見えないリスクがあるため）
+            background(50); 
+
+            // 1. カメラ描画
+            if (video && video.width > 0) {
+                // アスペクト比を維持して画面いっぱいに表示
+                let scale = max(width / video.width, height / video.height);
+                let w = video.width * scale;
+                let h = video.height * scale;
+                let x = (width - w) / 2;
+                let y = (height - h) / 2;
 
                 push();
-                translate(width, 0);
+                translate(width, 0); // 左右反転
                 scale(-1, 1);
-                image(video, -(videoX + renderW), videoY, renderW, renderH); 
+                image(video, -(x + w), y, w, h); 
                 pop();
-                
-                // 薄暗くするフィルター
-                fill(0, 150); 
-                noStroke();
-                rect(0, 0, width, height);
+            } else {
+                // カメラがない時
+                fill(100); textAlign(CENTER); textSize(20);
+                text("No Camera Signal", width/2, height/2);
             }
 
-            if (gameState === 'INIT' || gameState === 'LOADING' || gameState === 'TITLE') {
-                updatePoseTracking();
-                drawSkeletonDebug();
-            } else if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
-                updatePoseTracking(); 
-                updateGameLogic();    
-                drawGameObjects();
-                drawGameUI(); 
-                drawSkeletonDebug();
-            } else if (gameState === 'WARNING') {
-                updatePoseTracking(); 
-                drawWarning();
-            } else if (gameState === 'COUNTDOWN') {
-                updatePoseTracking(); 
-                drawCountdown();
-            }
-        }
-
-        function updatePoseTracking() {
+            // 2. 手の位置検出
             trackedPos = [null, null];
             if (poses.length > 0) {
-                let pose = poses[0].pose;
-                // 信頼度判定
-                if (pose.leftWrist.confidence > 0.1) trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
-                if (pose.rightWrist.confidence > 0.1) trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
-            } else {
-                // テスト用マウス操作
-                if(mouseIsPressed) {
-                    trackedPos[0] = {x:mouseX-50, y:mouseY};
-                    trackedPos[1] = {x:mouseX+50, y:mouseY};
-                }
+                let p = poses[0].pose;
+                // 手首の位置を取得 (信頼度0.2以上)
+                if (p.leftWrist.confidence > 0.2) trackedPos[0] = transform(p.leftWrist.x, p.leftWrist.y);
+                if (p.rightWrist.confidence > 0.2) trackedPos[1] = transform(p.rightWrist.x, p.rightWrist.y);
             }
+            
+            // マウスでのデバッグ操作（PC用）
+            if (mouseIsPressed) {
+                trackedPos[0] = {x: mouseX - 50, y: mouseY};
+                trackedPos[1] = {x: mouseX + 50, y: mouseY};
+            }
+
+            // 手の描画（デバッグ用：緑と赤の丸）
+            noFill(); strokeWeight(5);
+            if (trackedPos[0]) { stroke(0,255,0); circle(trackedPos[0].x, trackedPos[0].y, 60); }
+            if (trackedPos[1]) { stroke(255,0,0); circle(trackedPos[1].x, trackedPos[1].y, 60); }
+
+            // 3. ゲームループ
+            if (gameState === 'PLAY') {
+                updateGame();
+                drawGame();
+            }
+            
+            // 左上ステータス更新
+            let status = "State: " + gameState + " | Score: " + score;
+            if(trackedPos[0]) status += " | L-Hand OK";
+            if(trackedPos[1]) status += " | R-Hand OK";
+            updateStatus(status);
         }
 
-        function transformCoords(x, y) {
-            let screenX = map(x, 0, video.width, width, 0); 
-            let screenY = map(y, 0, video.height, 0, height);
+        // カメラ座標を画面座標に変換
+        function transform(x, y) {
+            if (!video || video.width === 0) return {x:0, y:0};
+            let scale = max(width / video.width, height / video.height);
+            let w = video.width * scale;
+            let h = video.height * scale;
+            let videoX = (width - w) / 2;
+            let videoY = (height - h) / 2;
+            
+            // 左右反転を考慮
+            let screenX = videoX + (video.width - x) * scale;
+            let screenY = videoY + y * scale;
             return { x: screenX, y: screenY };
         }
 
-        function drawSkeletonDebug() {
-            noFill(); strokeWeight(5);
-            // 認識中の手を緑と赤で表示
-            if (trackedPos[0]) { stroke(0, 255, 200); circle(trackedPos[0].x, trackedPos[0].y, 50); }
-            if (trackedPos[1]) { stroke(255, 50, 50); circle(trackedPos[1].x, trackedPos[1].y, 50); }
-        }
-
-        function updateGameLogic() {
+        function updateGame() {
+            // 敵の出現
             if (frameCount % 60 === 0) {
-                if (gameState === 'GAME' && timeLeft > 0) timeLeft--;
-                if ((gameState === 'EXTRA1' || gameState === 'EXTRA2') && extraTimer > 0) extraTimer--;
+                balloons.push({
+                    x: random(50, width-50),
+                    y: height + 50,
+                    r: 40,
+                    speed: 3,
+                    type: 'NORMAL'
+                });
             }
 
-            if (gameState === 'GAME') {
-                if (timeLeft <= 20 && !waterSpawned && !hasCollectedWater) {
-                    spawnWater();
-                    waterSpawned = true;
-                }
-                if (timeLeft <= 0) {
-                    if (hasCollectedWater) {
-                        gameState = 'WARNING';
-                        warningTextX = width;
-                        if(bgmNormal && bgmNormal.isPlaying()) bgmNormal.stop();
-                    } else {
-                        endGame();
+            // かめはめ波チャージ判定
+            if (trackedPos[0] && trackedPos[1]) {
+                let d = dist(trackedPos[0].x, trackedPos[0].y, trackedPos[1].x, trackedPos[1].y);
+                if (d < 150) {
+                    isCharging = true;
+                    chargeTimer += 2;
+                    if (chargeTimer > 100) {
+                        isFiring = true;
+                        chargeTimer = 0;
+                        fireTimer = 20;
                     }
+                } else {
+                    isCharging = false;
+                    chargeTimer = 0;
                 }
-            } else if (gameState === 'EXTRA1') {
-                if (extraTimer <= 0) {
-                    startExtraStage2();
-                }
-            } else if (gameState === 'EXTRA2') {
-                if (bossIsDead && extraTimer <= 0) endGame();
-                else if (!bossIsDead && extraTimer <= 0) endGame(); 
             }
 
-            handleKamehameha();
-            updateBalloons();
-            updateFloatingTexts();
-            if (gameState === 'EXTRA2') updateBoss();
-        }
-
-        function spawnWater() {
-            balloons.push({
-                type: 'WATER',
-                x: random(100, width-100),
-                y: height + 50,
-                r: min(width, height) * 0.1, 
-                speed: 4,
-                c: color(0, 100, 255)
-            });
-        }
-
-        function startExtraStage1() {
-            gameState = 'EXTRA1';
-            balloons = [];
-            extraTimer = 15;
-            score += 0; 
-            if (bgmExtra1 && bgmExtra1.isLoaded()) {
-                bgmExtra1.setVolume(0.5);
-                bgmExtra1.loop();
-            }
-        }
-
-        function startExtraStage2() {
-            gameState = 'EXTRA2';
-            balloons = [];
-            extraTimer = 15;
-            boss = { x: width/2, y: bossBaseY, w: min(width, height)*0.5, h: min(width, height)*0.5, hp: 2, justHit: false };
-            bossIsDead = false;
-            
-            if (bgmExtra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
-            if (bgmBoss && bgmBoss.isLoaded()) {
-                bgmBoss.setVolume(0.5);
-                bgmBoss.loop();
-            }
-        }
-
-        function updateBalloons() {
-            if (!isFiring && gameState !== 'EXTRA2' && frameCount % 30 === 0) {
-                spawnBalloon();
+            // 発射処理
+            if (isFiring) {
+                fireTimer--;
+                if (fireTimer <= 0) isFiring = false;
             }
 
+            // 敵の移動と当たり判定
             for (let i = balloons.length - 1; i >= 0; i--) {
                 let b = balloons[i];
                 b.y -= b.speed;
+                
                 let hit = false;
-                if (!isFiring) {
-                    for (let p of trackedPos) {
-                        if (p && dist(p.x, p.y, b.x, b.y) < b.r + 80) hit = true; 
-                    }
+                // 手でタッチ
+                if (trackedPos[0] && dist(trackedPos[0].x, trackedPos[0].y, b.x, b.y) < b.r + 30) hit = true;
+                if (trackedPos[1] && dist(trackedPos[1].x, trackedPos[1].y, b.x, b.y) < b.r + 30) hit = true;
+                // かめはめ波
+                if (isFiring) hit = true;
+
+                if (hit) {
+                    score += 10;
+                    balloons.splice(i, 1);
+                    // 音を鳴らす
+                    if(osc) { osc.freq(500); osc.amp(0.5, 0.1); setTimeout(()=>osc.amp(0, 0.1), 100); }
+                } else if (b.y < -50) {
+                    balloons.splice(i, 1);
                 }
-                if (hit) { popBalloon(i); } 
-                else if (b.y < -b.r) { balloons.splice(i, 1); }
             }
         }
 
-        function spawnBalloon() {
-            let sizeBase = min(width, height) * 0.1;
-            if (gameState === 'GAME') {
-                balloons.push({ type: 'NORMAL', x: random(50, width-50), y: height+50, r: sizeBase, c: color(random(255), random(255), random(255)), speed: random(3, 7) });
-            } else if (gameState === 'EXTRA1') {
-                let type = random() < 0.5 ? 'GASHIMA' : 'IGONERI';
-                balloons.push({ type: type, x: random(50, width-50), y: height+50, r: sizeBase, c: color(255), speed: random(6, 10) });
-            }
-        }
-
-        function popBalloon(i) {
-            let b = balloons[i];
-            let pts = 0;
-            if (b.type === 'NORMAL') pts = 1;
-            else if (b.type === 'WATER') {
-                pts = 332;
-                hasCollectedWater = true;
-                addFloatingText("332", b.x, b.y, 60); 
-            }
-            else if (b.type === 'GASHIMA' || b.type === 'IGONERI') {
-                pts = 15;
-                addFloatingText("15", b.x, b.y, 40); 
-            }
-            score += pts;
-            balloons.splice(i, 1);
-            osc.freq(random(500, 1000));
-            osc.amp(0.3, 0.05); setTimeout(()=>osc.amp(0, 0.05), 100);
-        }
-
-        function updateBoss() {
-            if (!boss || bossIsDead) return;
-            boss.y = bossBaseY + sin(frameCount * 0.05) * 20;
-
-            if (isFiring) {
-                if (!boss.justHit) {
-                    boss.hp--; 
-                    boss.justHit = true; 
-                    if (boss.hp <= 0) {
-                        score += 31000000000;
-                        bossIsDead = true;
-                        extraTimer = 3; 
-                        noiseOsc.amp(1.0, 0.1); setTimeout(()=>noiseOsc.amp(0, 1.0), 1000);
-                        if (bgmBoss && bgmBoss.isPlaying()) bgmBoss.stop();
-                        if (bgmVictory && bgmVictory.isLoaded()) { bgmVictory.setVolume(1.0); bgmVictory.play(); }
-                        addFloatingText("310億", width/2, height/2, 180); 
-                    } else {
-                        addFloatingText("あと1回！", width/2, boss.y, 60);
-                        osc.freq(100); osc.amp(0.8, 0.05); setTimeout(()=>osc.amp(0, 0.05), 200);
-                    }
-                }
-            } else {
-                boss.justHit = false;
-            }
-        }
-
-        function drawGameObjects() {
+        function drawGame() {
+            // 敵
             for (let b of balloons) {
-                push();
-                translate(b.x, b.y);
-                let drawSize = b.r * 2.5;
-                if (b.type === 'WATER') drawImageOrShape(imgWater, imagesLoaded.water, "佐渡海洋深層水", drawSize, color(0,100,255));
-                else if (b.type === 'GASHIMA') drawImageOrShape(imgEnemy1, imagesLoaded.enemy1, "ガシマ", drawSize, color(255,0,0));
-                else if (b.type === 'IGONERI') drawImageOrShape(imgEnemy2, imagesLoaded.enemy2, "いごねり", drawSize, color(0,255,0));
-                else {
-                    fill(b.c); stroke(255); strokeWeight(3); circle(0, 0, b.r * 2);
-                    noStroke(); fill(255, 100); circle(-b.r/3, -b.r/3, b.r/2);
-                }
-                pop();
-            }
-
-            if (gameState === 'EXTRA2' && boss) {
-                push();
-                translate(boss.x, boss.y);
-                let displayImg = bossIsDead ? imgBossEnd : imgBoss;
-                let loaded = bossIsDead ? imagesLoaded.bossEnd : imagesLoaded.boss;
-                let label = bossIsDead ? "撃破！" : "佐渡ヶ島(Boss)";
-                drawImageOrShape(displayImg, loaded, label, (boss.w) * 2, color(100));
-                pop();
-            }
-
-            if (isFiring) drawBeam();
-
-            for (let ft of floatingTexts) {
-                push();
-                textAlign(CENTER, CENTER); textStyle(BOLD);
-                if (ft.val === "310億") {
-                    textSize(min(width,height)*0.2); fill(255, 215, 0); stroke(255, 0, 0); strokeWeight(10);
-                    drawingContext.shadowBlur = 30; drawingContext.shadowColor = "white";
-                } else if (ft.val === "あと1回！") {
-                    textSize(min(width,height)*0.15); fill(255, 50, 50); stroke(255); strokeWeight(5);
+                // 画像があれば表示、なければ丸
+                if (imgEnemy1 && imgEnemy1.width > 0) {
+                    imageMode(CENTER);
+                    image(imgEnemy1, b.x, b.y, b.r*2, b.r*2);
                 } else {
-                    textSize(min(width,height)*0.1); fill(255, 255, 0); stroke(0); strokeWeight(3);
+                    fill(255, 0, 255); noStroke();
+                    circle(b.x, b.y, b.r*2);
                 }
-                text(ft.val, ft.x, ft.y);
-                pop();
             }
-        }
 
-        function drawImageOrShape(img, isLoaded, label, size, altColor) {
-            if (isLoaded) {
-                imageMode(CENTER);
-                image(img, 0, 0, size, size); 
-            } else {
-                fill(altColor); stroke(255); strokeWeight(3);
-                if(label === "佐渡ヶ島(Boss)" || label === "撃破！") rect(0,0, size*0.8, size*0.8);
-                else circle(0, 0, size * 0.8);
-                fill(255); noStroke(); textAlign(CENTER, CENTER); textSize(14);
-                text(label, 0, 0);
+            // チャージエフェクト
+            if (isCharging) {
+                let cx = (trackedPos[0].x + trackedPos[1].x) / 2;
+                let cy = (trackedPos[0].y + trackedPos[1].y) / 2;
+                noFill(); stroke(255, 255, 0); strokeWeight(5);
+                circle(cx, cy, chargeTimer * 2);
             }
-        }
 
-        function updateFloatingTexts() {
-            for (let i = floatingTexts.length - 1; i >= 0; i--) {
-                floatingTexts[i].life--;
-                floatingTexts[i].y -= 1; 
-                if (floatingTexts[i].life <= 0) floatingTexts.splice(i, 1);
-            }
-        }
-
-        function addFloatingText(val, x, y, life) {
-            floatingTexts.push({val: val, x: x, y: y, life: life});
-        }
-
-        function drawWarning() {
-            background(0, 0, 0, 20); 
-            fill(255, 0, 0); stroke(255); strokeWeight(5);
-            textSize(min(width,height)*0.2); textStyle(BOLD); textAlign(LEFT, CENTER);
-            text("WARNING!! EXTRA STAGE!!", warningTextX, height/2);
-            warningTextX -= width*0.05; 
-            if (warningTextX < -width*3) {
-                startExtraStage1();
-            }
-        }
-
-        function handleKamehameha() {
-            if (cooldownTimer > 0) { cooldownTimer--; return; }
+            // かめはめ波ビーム
             if (isFiring) {
-                fireTimer--;
-                if (fireTimer <= 0) {
-                    isFiring = false; noiseOsc.amp(0, 0.5);
-                    needsSeparation = true;
-                    if (gameState !== 'EXTRA2') { 
-                        for (let i = balloons.length - 1; i >= 0; i--) {
-                            popBalloon(i); 
-                        }
-                    }
-                }
-                return;
+                fill(255, 255, 0, 150); noStroke();
+                rect(0, 0, width, height);
             }
-            let p1 = trackedPos[0], p2 = trackedPos[1];
-            if (p1 && p2) {
-                let d = dist(p1.x, p1.y, p2.x, p2.y);
-                if (needsSeparation) {
-                    stroke(0, 0, 50); strokeWeight(4); line(p1.x, p1.y, p2.x, p2.y);
-                    if (d > width*0.4) needsSeparation = false;
-                    return; 
-                }
-                let lineAlpha = map(d, 0, width*0.5, 255, 50);
-                stroke(0, 0, 100, lineAlpha); strokeWeight(10);
-                line(p1.x, p1.y, p2.x, p2.y);
-                if (d < width*0.2) {
-                    if (!isCharging) { isCharging = true; osc.amp(0.3, 0.1); }
-                    chargeTimer += 2;
-                    let cx = (p1.x + p2.x)/2; let cy = (p1.y + p2.y)/2;
-                    noFill(); stroke(180, 100, 100); strokeWeight(random(5, 15));
-                    let size = map(chargeTimer, 0, 60, 20, width*0.5);
-                    circle(cx, cy, size);
-                    osc.freq(map(chargeTimer, 0, 60, 200, 800)); 
-                    if (chargeTimer > 60) {
-                        isCharging = false; chargeTimer = 0; isFiring = true; fireTimer = 60;
-                        osc.amp(0, 0.1); noiseOsc.amp(0.8, 0.1);
-                    }
-                } else {
-                    if (chargeTimer > 0) {
-                        chargeTimer -= 5;
-                        if(chargeTimer <= 0) { isCharging = false; osc.amp(0, 0.1); }
-                    }
-                }
-            }
+
+            // UI
+            fill(255); noStroke(); textSize(30); textAlign(LEFT, TOP);
+            text("SCORE: " + score, 20, 20);
         }
 
-        function drawGameUI() {
-            let textSizeBig = width * 0.05; 
-            push();
-            textAlign(LEFT, TOP); textSize(textSizeBig); textStyle(BOLD);
-            fill(0); text("SCORE: " + formatScore(score), 32, 32);
-            fill(0, 255, 255); text("SCORE: " + formatScore(score), 30, 30);
-            
-            textAlign(RIGHT, TOP);
-            let t = (gameState === 'EXTRA1' || gameState === 'EXTRA2') ? extraTimer : timeLeft;
-            let label = (gameState === 'EXTRA1' || gameState === 'EXTRA2') ? "EXTRA: " : "TIME: ";
-            let col = (gameState === 'EXTRA1' || gameState === 'EXTRA2') ? color(255, 0, 0) : color(0, 255, 0);
-            fill(0); text(label + t, width-32, 32);
-            fill(col); text(label + t, width-30, 30);
-
-            document.getElementById('charge-bar-container').style.display = 'block';
-            let barY = height - 60;
-            
-            if (needsSeparation) {
-                document.getElementById('charge-bar').style.width = '100%';
-                document.getElementById('charge-bar').style.background = '#000055';
-                fill(0, 0, 100); textAlign(CENTER, CENTER); textSize(30);
-                text("てを はなして！", width/2, barY + 15);
-            } else if (isCharging) {
-                let w = map(chargeTimer, 0, 60, 0, 100);
-                document.getElementById('charge-bar').style.width = w + '%';
-                document.getElementById('charge-bar').style.background = 'linear-gradient(90deg, #FFFF00, #FF4500)';
-                fill(0); textAlign(CENTER, CENTER); textSize(30);
-                text("チャージ中！", width/2, barY + 15);
-            } else {
-                document.getElementById('charge-bar').style.width = '100%';
-                document.getElementById('charge-bar').style.background = 'rgba(100,100,100,0.5)';
-                fill(0, 0, 100); textAlign(CENTER, CENTER); textSize(30);
-                text("ひっさつわざOK", width/2, barY + 15);
-            }
-            pop();
-        }
-
-        function drawBeam() {
-            noStroke();
-            if (frameCount % 4 < 2) fill(180, 100, 100, 200);
-            else fill(0, 0, 100, 200);
-            rect(0, 0, width, height);
-        }
-
-        let countdownVal = 3;
-        function drawCountdown() {
-            if (frameCount % 60 === 0 && countdownVal > 0) countdownVal--;
-            fill(0,0,0,100); rect(0,0,width,height);
-            fill(60, 100, 100); textAlign(CENTER, CENTER); textSize(min(width, height)*0.4);
-            textStyle(BOLD); stroke(0, 100, 100); strokeWeight(20);
-            if (countdownVal > 0) text(countdownVal, width/2, height/2);
-            else {
-                text("スタート！", width/2, height/2);
-                if (frameCount % 60 === 30) { 
-                    startGameLoop();
-                }
-            }
-        }
-
-        function startGameLoop() {
-            gameState = 'GAME'; score = 0; timeLeft = 60; balloons = [];
-            hasCollectedWater = false; waterSpawned = false; bossIsDead = false;
-            extraTimer = 0; boss = null; needsSeparation = false;
-            
-            stopAllSounds();
-            if(bgmNormal && bgmNormal.isLoaded()) {
-                bgmNormal.setVolume(0.5); bgmNormal.loop();
-            }
-        }
-
-        function endGame() { 
-            gameState = 'RESULT'; 
-            stopAllSounds();
-            document.getElementById('final-score').innerText = formatScore(score); 
-            document.getElementById('result-screen').classList.remove('hidden');
-            document.getElementById('result-screen').style.display = 'flex';
-            document.getElementById('charge-bar-container').style.display = 'none';
-            if(score > highScore) {
-                highScore = score;
-                localStorage.setItem('kamehameha_highscore', highScore);
-                updateScoreLabels();
-            }
-        }
-
-        function windowResized() { 
+        function windowResized() {
             resizeCanvas(windowWidth, windowHeight);
-            bossBaseY = height * 0.6;
         }
     </script>
 </body>
