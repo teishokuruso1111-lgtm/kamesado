@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Final Compat Fix）</title>
+    <title>かめはめ波（Click Start Ver）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; }
         
-        /* デバッグログ */
+        /* ログ表示（確認用） */
         #debug-log {
             position: absolute; top: 0; left: 0; width: 100%; 
-            background: rgba(0,0,0,0.5); color: #FFF; 
+            background: rgba(0,0,0,0.5); color: #00FF00; 
             font-size: 12px; z-index: 9999; pointer-events: none;
             white-space: pre-wrap; padding: 5px;
         }
@@ -24,7 +24,6 @@
             color: #333; border-radius: 50px; cursor: pointer; margin: 15px; pointer-events: auto; transition: transform 0.1s; box-shadow: 0 5px 15px rgba(0,0,0,0.5); text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
         }
         button:active { transform: scale(0.95); }
-        button:disabled { background: #666; color: #999; cursor: not-allowed; }
 
         .screen { 
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -43,26 +42,26 @@
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
         
         .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
-        #loading-msg { color: #00FF00; font-size: 20px; font-weight: bold; margin-top: 20px; }
-        
-        /* 強制スタートボタン（最初は隠す） */
-        #force-start-btn { 
-            display: none; margin-top: 10px; background: #555; color: #FFF; font-size: 14px; padding: 5px 15px; border: 1px solid #FFF; 
-        }
+        #loading-msg { color: #00FF00; font-size: 18px; font-weight: bold; margin-top: 20px; }
     </style>
 
     <script>
+        function log(msg) {
+            console.log(msg);
+            var el = document.getElementById('debug-log');
+            if(el) el.innerHTML += msg + " | ";
+        }
         window.onerror = function(msg, url, line) {
-            document.getElementById('debug-log').innerHTML += "Err: " + msg + "<br>";
+            log("Err:" + msg);
         };
     </script>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/addons/p5.sound.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ml5/0.12.2/ml5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
+    <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
 </head>
 <body>
-    <div id="debug-log">Log:<br></div>
+    <div id="debug-log">System Ready...<br></div>
     
     <div id="ui-layer">
         <div id="title-screen" class="screen">
@@ -70,11 +69,11 @@
             <p>〜 AI モーションキャプチャ版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             
-            <button onclick="startGame()" id="start-btn" disabled>ロード中...</button>
-            <div id="loading-msg">カメラとAIを準備中...</div>
+            <button onclick="userStart()" id="init-btn">カメラ起動</button>
             
-            <button onclick="forceStart()" id="force-start-btn">⚠️ 強制スタート(AIなし)</button>
+            <button onclick="startGame()" id="start-btn" class="hidden">あそぶ！</button>
             
+            <div id="loading-msg" class="hidden">AI準備中...</div>
             <div class="credit">音楽素材：魔王魂 / AR Spark</div>
         </div>
 
@@ -109,7 +108,7 @@
         let score = 0;
         let highScore = 0;
         let timeLeft = 60;
-        let gameState = 'LOADING'; 
+        let gameState = 'INIT'; 
         let trackedPos = [null, null]; 
         
         let chargeTimer = 0;
@@ -129,194 +128,29 @@
         let bossIsDead = false;
         let modelIsReady = false;
 
+        // preloadは削除しました！これで止まることはありません。
+
         function setup() {
-            try {
-                createCanvas(windowWidth, windowHeight);
-                colorMode(RGB, 255, 255, 255, 255);
-                background(0);
-
-                loadResources();
-
-                let savedScore = localStorage.getItem('kamehameha_highscore');
-                if(savedScore) highScore = parseInt(savedScore);
-                updateScoreLabels();
-                
-                // カメラ設定（シンプルかつiPad対応）
-                let constraints = {
-                    video: {
-                        width: { ideal: CAM_W },
-                        height: { ideal: CAM_H }
-                    },
-                    audio: false
-                };
-                
-                video = createCapture(constraints, function(stream) { 
-                    log("Camera Init OK");
-                    initPoseNet();
-                });
-                
-                // ★iPad対策：この属性がないと止まります
-                if (video && video.elt) {
-                    video.elt.setAttribute('playsinline', '');
-                    video.elt.setAttribute('autoplay', '');
-                    video.elt.setAttribute('muted', '');
-                }
-
-                video.size(CAM_W, CAM_H);
-                video.hide();
-                
-                setupSounds();
-                bossBaseY = height * 0.6;
-                
-                // 10秒経ってもロードが終わらなければ強制ボタンを表示
-                setTimeout(() => {
-                    if (!modelIsReady) {
-                        document.getElementById('force-start-btn').style.display = 'block';
-                        document.getElementById('loading-msg').innerHTML += "<br>(遅い場合は強制スタートを押してください)";
-                    }
-                }, 10000);
-
-            } catch(e) {
-                log("SetupErr: " + e.message);
-            }
-        }
-
-        function initPoseNet() {
-            log("Loading AI...");
-            
-            // 最も標準的な設定で起動
-            let options = {
-                architecture: 'MobileNetV1',
-                imageScaleFactor: 0.3,
-                outputStride: 16,
-                flipHorizontal: true,
-                minConfidence: 0.5,
-                scoreThreshold: 0.5,
-                detectionType: 'single',
-                multiplier: 0.75
-            };
-            
-            try {
-                poseNet = ml5.poseNet(video, options, modelReady);
-                poseNet.on('pose', function(results) {
-                    poses = results;
-                });
-            } catch(e) {
-                log("AI Init Err: " + e.message);
-            }
-        }
-
-        function modelReady() {
-            log("AI Ready!");
-            modelIsReady = true;
-            let btn = document.getElementById('start-btn');
-            btn.innerText = "あそぶ！";
-            btn.disabled = false;
-            document.getElementById('loading-msg').style.display = 'none';
-            document.getElementById('force-start-btn').style.display = 'none';
-        }
-
-        // AI読み込み失敗時の救済
-        function forceStart() {
-            log("Force Start");
-            modelIsReady = true; // 偽装
-            startGame();
-        }
-
-        function log(msg) {
-            console.log(msg);
-            document.getElementById('debug-log').innerHTML += msg + " | ";
-        }
-
-        function loadResources() {
-            imgWater = loadImage('water.png', ()=>{}, ()=>{ log("No:water"); });
-            imgEnemy1 = loadImage('enemy1.png', ()=>{}, ()=>{ log("No:enm1"); });
-            imgEnemy2 = loadImage('enemy2.png', ()=>{}, ()=>{ log("No:enm2"); });
-            imgBoss = loadImage('boss.png', ()=>{}, ()=>{ log("No:boss"); });
-            imgBossEnd = loadImage('boss_end.png', ()=>{}, ()=>{ log("No:boss_e"); });
-            
-            bgmNormal = loadSound('normal_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_n"); });
-            bgmExtra1 = loadSound('extra1_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_ex"); });
-            bgmBoss = loadSound('boss_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_b"); });
-            bgmVictory = loadSound('victory.mp3', ()=>{}, ()=>{ log("No:bgm_v"); });
-        }
-
-        function setupSounds() {
-            osc = new p5.Oscillator('sine');
-            osc.amp(0); osc.start();
-            noiseOsc = new p5.Noise('brown');
-            noiseOsc.amp(0); noiseOsc.start();
-        }
-
-        function ensureAudio() {
-            if (getAudioContext().state !== 'running') {
-                getAudioContext().resume();
-            }
-        }
-
-        function updateScoreLabels() {
-            document.getElementById('high-score-title').innerText = formatScore(highScore);
-            document.getElementById('high-score-result').innerText = formatScore(highScore);
-        }
-
-        function formatScore(n) {
-            return n.toLocaleString();
-        }
-
-        function draw() {
+            log("Setup Start");
+            let c = createCanvas(windowWidth, windowHeight);
+            c.style('display', 'block');
+            colorMode(RGB, 255, 255, 255, 255);
             background(0);
+
+            // リソース読み込みはここで行う
+            loadResources();
+
+            let savedScore = localStorage.getItem('kamehameha_highscore');
+            if(savedScore) highScore = parseInt(savedScore);
+            updateScoreLabels();
             
-            if (video && video.width) {
-                let scaleW = width / video.width;
-                let scaleH = height / video.height;
-                vScale = max(scaleW, scaleH);
-                let renderW = video.width * vScale;
-                let renderH = video.height * vScale;
-                videoX = (width - renderW) / 2;
-                videoY = (height - renderH) / 2;
-
-                push();
-                translate(width, 0);
-                scale(-1, 1);
-                image(video, -(videoX + renderW), videoY, renderW, renderH); 
-                pop();
-                
-                // 半透明の黒フィルター
-                fill(0, 150); 
-                noStroke();
-                rect(0, 0, width, height);
-            }
-
-            if (gameState === 'LOADING' || gameState === 'TITLE') {
-                updatePoseTracking();
-                drawSkeletonDebug();
-            }
-
-            if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
-                updatePoseTracking(); 
-                updateGameLogic();    
-                drawGameObjects();
-                drawGameUI(); 
-                drawSkeletonDebug();
-            } else if (gameState === 'WARNING') {
-                updatePoseTracking(); 
-                drawWarning();
-            } else if (gameState === 'COUNTDOWN') {
-                updatePoseTracking(); 
-                drawCountdown();
-            }
+            bossBaseY = height * 0.6;
+            log("Setup Done. Waiting for click.");
         }
 
-        function updatePoseTracking() {
-            trackedPos = [null, null];
-            
-            // AIが動いている場合
-            if (poses.length > 0) {
-                let pose = poses[0].pose;
-                if (pose.leftWrist.confidence > 0.1) trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
-                if (pose.rightWrist.confidence > 0.1) trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
-            } else {
-                // AIが動いていない（強制スタートなど）場合はマウスで代用
-                if(mouseIsPressed) {
-                    trackedPos[0] = {x: mouseX - 50, y: mouseY};
-                    trackedPos[1] = {x: mouseX + 50, y: mouseY
+        // ユーザーが「カメラ起動」ボタンを押したら実行
+        function userStart() {
+            log("User Clicked Start");
+            document.getElementById('init-btn').classList.add('hidden');
+            document.getElementById('loading-msg').classList.remove('hidden');
+            document.getElementById('loading-msg').innerText = "カメラ許可
