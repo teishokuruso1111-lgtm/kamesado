@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Bug Fix Final）</title>
+    <title>かめはめ波（Perfect Color Ver）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
         
@@ -26,12 +26,10 @@
         }
         .hidden { display: none !important; }
         
-        /* キャリブレーション画面 */
         #calibration-screen {
             display: none; width: 100%; height: 100%;
             flex-direction: column; justify-content: space-between; align-items: center;
             padding: 40px; box-sizing: border-box;
-            /* 背景なし（カメラが見えるように） */
             pointer-events: none; 
         }
         
@@ -57,7 +55,7 @@
     <div id="ui-layer">
         <div id="title-screen" class="screen">
             <h1>かめはめ波</h1>
-            <p>〜 佐渡ヶ島 HSV版 〜</p>
+            <p>〜 佐渡ヶ島 決戦版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             <button onclick="startCalibration()">あそぶ！</button>
             <div class="credit">音楽素材：魔王魂 / AR Spark</div>
@@ -66,7 +64,7 @@
         <div id="calibration-screen">
             <div class="calib-text">白い枠の中に<br>リストバンドを入れて<br>画面をタップ！</div>
             <div style="pointer-events: auto; margin-bottom: 50px;">
-                <button onclick="resetCalibration()" class="secondary" style="font-size:18px; padding:10px 30px;">やりなおす</button>
+                <button onclick="returnToTitle()" class="secondary" style="font-size:18px; padding:10px 30px;">タイトルへ戻る</button>
             </div>
         </div>
 
@@ -87,16 +85,18 @@
         const CAM_H = 480;
         const SKIP_STEP = 4; 
         
-        const HUE_THRESH = 20; 
+        // HSV判定の許容範囲
+        const HUE_THRESH = 25; 
         const SAT_THRESH = 30; 
         const VAL_THRESH = 30; 
         
+        // 画像比率 (横長 676:369)
         const IMG_RATIO = 369 / 676; 
 
         // --- 変数 ---
         let video;
         let targetHSV = null; 
-        let trackedPos = [null, null]; 
+        let trackedPos = [null, null]; // [左手, 右手]
         
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
         let bgmNormal, bgmExtra1, bgmBoss, bgmVictory;
@@ -146,7 +146,6 @@
             if(savedScore) highScore = parseInt(savedScore);
             updateScoreLabels();
             
-            // カメラ設定
             let constraints = {
                 video: { width: {ideal: CAM_W}, height: {ideal: CAM_H} },
                 audio: false
@@ -192,7 +191,7 @@
         function draw() {
             background(0);
             
-            // 1. カメラ描画（★修正：暗くせずそのまま表示）
+            // 1. カメラ描画
             if (video && video.width) {
                 let scaleW = width / video.width;
                 let scaleH = height / video.height;
@@ -205,7 +204,7 @@
                 push();
                 translate(width, 0);
                 scale(-1, 1);
-                tint(255); // 255=Max (明るさそのまま)
+                tint(255); // 明るさMAX
                 image(video, -(x + w), y, w, h);
                 pop();
                 
@@ -214,7 +213,6 @@
                 window.vidY = y;
             }
 
-            // 2. 状態分岐
             if (gameState === 'CALIBRATION') {
                 drawCalibrationGuide();
                 processVideoHSV();
@@ -232,16 +230,15 @@
             }
         }
 
-        // --- 色追跡 ---
+        // --- HSV色変換 ---
         function rgbToHsv(r, g, b) {
             r /= 255, g /= 255, b /= 255;
             let max = Math.max(r, g, b), min = Math.min(r, g, b);
             let h, s, v = max;
             let d = max - min;
             s = max == 0 ? 0 : d / max;
-            if (max == min) {
-                h = 0; 
-            } else {
+            if (max == min) h = 0; 
+            else {
                 switch (max) {
                     case r: h = (g - b) / d + (g < b ? 6 : 0); break;
                     case g: h = (b - r) / d + 2; break;
@@ -254,6 +251,7 @@
 
         function processVideoHSV() {
             if (!targetHSV || !video || video.width === 0) return;
+            
             video.loadPixels();
             if (video.pixels.length === 0) return;
             
@@ -264,7 +262,6 @@
                     let r = video.pixels[i];
                     let g = video.pixels[i+1];
                     let b = video.pixels[i+2];
-                    
                     let hsv = rgbToHsv(r, g, b);
                     let h = hsv[0]; let s = hsv[1]; let v = hsv[2];
 
@@ -280,21 +277,24 @@
                 }
             }
 
+            // ★修正：見つからない場合は座標を更新しない（左上に飛ばない）
             if (matchingPixels.length < 10) {
-                trackedPos = [null, null];
+                // trackedPos = [null, null]; // これをやめる
                 return;
             }
+            
             matchingPixels.sort((a, b) => a.x - b.x);
             let mid = Math.floor(matchingPixels.length / 2);
             
             let sumX=0, sumY=0, count=0;
             for(let i=0; i<mid; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
-            trackedPos[0] = (count > 5) ? {x: sumX/count, y: sumY/count} : null;
+            if(count > 5) trackedPos[0] = {x: sumX/count, y: sumY/count};
             
             sumX=0; sumY=0; count=0;
             for(let i=mid; i<matchingPixels.length; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
-            trackedPos[1] = (count > 5) ? {x: sumX/count, y: sumY/count} : null;
+            if(count > 5) trackedPos[1] = {x: sumX/count, y: sumY/count};
             
+            // 手の位置表示
             noFill(); stroke(0, 255, 0); strokeWeight(4);
             if(trackedPos[0]) circle(trackedPos[0].x, trackedPos[0].y, 50);
             if(trackedPos[1]) circle(trackedPos[1].x, trackedPos[1].y, 50);
@@ -305,7 +305,6 @@
             let sumR=0, sumG=0, sumB=0, count=0;
             let cx = video.width / 2;
             let cy = video.height / 2;
-
             for(let dy = -10; dy <= 10; dy++) {
                 for(let dx = -10; dx <= 10; dx++) {
                     let x = floor(cx + dx);
@@ -351,7 +350,7 @@
                         gameState = 'WARNING'; warningTextX = width;
                         if(soundLoaded.normal) bgmNormal.stop();
                     } else {
-                        endGame();
+                        endGame(); 
                     }
                 }
             } else if (gameState === 'EXTRA1') {
@@ -368,9 +367,10 @@
         }
 
         function spawnWater() {
+            // ★サイズを巨大化 (w:150)
             balloons.push({
                 type: 'WATER', x: random(100, width-100), y: height + 50,
-                r: 50, w: 80, speed: 4, c: color(0, 100, 255)
+                r: 70, w: 150, speed: 4, c: color(0, 100, 255)
             });
         }
 
@@ -381,7 +381,7 @@
 
         function startExtraStage2() {
             gameState = 'EXTRA2'; balloons = []; extraTimer = 15;
-            boss = { x: width/2, y: height*0.6, w: width*0.6, hp: 2, justHit: false };
+            boss = { x: width/2, y: height*0.6, w: width*0.8, hp: 2, justHit: false };
             bossIsDead = false;
             if (soundLoaded.extra) bgmExtra1.stop();
             if (soundLoaded.boss) { bgmBoss.setVolume(0.5); bgmBoss.loop(); }
@@ -407,11 +407,12 @@
         }
 
         function spawnBalloon() {
+            // ★サイズを巨大化 (w:120〜150)
             if (gameState === 'GAME') {
-                balloons.push({ type: 'NORMAL', x: random(50, width-50), y: height+50, r: 50, w: 80, c: color(random(255),255,255), speed: random(3, 7) });
+                balloons.push({ type: 'NORMAL', x: random(50, width-50), y: height+50, r: 60, w: 120, c: color(random(255),255,255), speed: random(3, 7) });
             } else if (gameState === 'EXTRA1') {
                 let type = random() < 0.5 ? 'GASHIMA' : 'IGONERI';
-                balloons.push({ type: type, x: random(50, width-50), y: height+50, r: 50, w: 100, c: color(255), speed: random(6, 10) });
+                balloons.push({ type: type, x: random(50, width-50), y: height+50, r: 60, w: 150, c: color(255), speed: random(6, 10) });
             }
         }
 
@@ -473,15 +474,13 @@
                     fill(100); rect(boss.x, boss.y, boss.w, boss.w);
                 }
             }
-            // ★修正：ビーム描画時のモードリセット
             if(isFiring) {
                 push();
-                rectMode(CORNER); // 強制的に左上基準にする
+                rectMode(CORNER);
                 noStroke(); fill(255, 255, 0, 150); 
                 rect(0, 0, width, height);
                 pop();
             }
-            
             for (let ft of floatingTexts) {
                 push(); textAlign(CENTER, CENTER); textStyle(BOLD);
                 if (ft.val === "310億") {
@@ -511,19 +510,18 @@
                 if (fireTimer <= 0) { isFiring = false; needsSeparation = true; }
                 return;
             }
-            let p1 = trackedPos[0], p2 = trackedPos[1];
-            if (p1 && p2) {
-                let d = dist(p1.x, p1.y, p2.x, p2.y);
+            if (trackedPos[0] && trackedPos[1]) {
+                let d = dist(trackedPos[0].x, trackedPos[0].y, trackedPos[1].x, trackedPos[1].y);
                 if (needsSeparation) {
-                    stroke(0, 0, 50); strokeWeight(4); line(p1.x, p1.y, p2.x, p2.y);
+                    stroke(0, 0, 50); strokeWeight(4); line(trackedPos[0].x, trackedPos[0].y, trackedPos[1].x, trackedPos[1].y);
                     if (d > width*0.3) needsSeparation = false;
                     return; 
                 }
-                stroke(0, 0, 100, 150); strokeWeight(10); line(p1.x, p1.y, p2.x, p2.y);
+                stroke(0, 0, 100, 150); strokeWeight(10); line(trackedPos[0].x, trackedPos[0].y, trackedPos[1].x, trackedPos[1].y);
                 if (d < width*0.2) {
                     if (!isCharging) { isCharging = true; osc.amp(0.3, 0.1); }
                     chargeTimer += 2;
-                    let cx = (p1.x + p2.x)/2; let cy = (p1.y + p2.y)/2;
+                    let cx = (trackedPos[0].x + trackedPos[1].x)/2; let cy = (trackedPos[0].y + trackedPos[1].y)/2;
                     noFill(); stroke(180, 100, 100); strokeWeight(random(5, 15));
                     let size = map(chargeTimer, 0, 60, 20, width*0.5);
                     circle(cx, cy, size);
@@ -593,10 +591,8 @@
         
         function mousePressed(e) {
             ensureAudio(); 
+            if (e.target.tagName === 'BUTTON') return; // ボタンの時は無視
             
-            // ★修正：ボタンを押した時は色登録しない（誤作動防止）
-            if (e.target.tagName === 'BUTTON') return;
-
             if (gameState === 'CALIBRATION') {
                 video.loadPixels();
                 targetHSV = getTargetHSV();
@@ -635,14 +631,10 @@
             if(soundLoaded.boss) bgmBoss.stop();
             if(soundLoaded.win) bgmVictory.stop();
 
-            // 画面リセット
-            document.getElementById('result-screen').classList.add('hidden'); 
             document.getElementById('result-screen').style.display = 'none'; 
-            
             document.getElementById('title-screen').style.display = 'flex'; 
             document.getElementById('charge-bar-container').style.display = 'none';
             
-            // 変数リセット
             targetHSV = null;
             balloons = [];
             boss = null;
