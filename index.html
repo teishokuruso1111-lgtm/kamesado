@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Recovery Ver）</title>
+    <title>かめはめ波（Emergency Fix）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
         
-        /* デバッグログ（最前面） */
+        /* エラーログ（最前面） */
         #debug-log {
             position: absolute; top: 0; left: 0; width: 100%; 
             background: rgba(0,0,0,0.8); color: #00FF00; 
@@ -49,13 +49,13 @@
             if(el) el.innerHTML += msg + " | ";
         }
         window.onerror = function(msg, url, line) {
-            log("Global Error: " + msg);
+            log("GlobalError: " + msg);
         };
     </script>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js" onerror="log('Error: p5.js load failed')"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/addons/p5.sound.min.js" onerror="log('Error: p5.sound load failed')"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ml5/0.12.2/ml5.min.js" onerror="log('Error: ml5.js load failed')"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
+    <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
 </head>
 <body>
     <div id="debug-log">Init...<br></div>
@@ -66,8 +66,8 @@
             <p>〜 AI モーションキャプチャ版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             
-            <button onclick="bootGame()" id="init-btn">カメラ起動</button>
-            <button onclick="startGame()" id="start-btn" class="hidden">あそぶ！</button>
+            <button id="init-btn">カメラ起動</button>
+            <button id="start-btn" class="hidden">あそぶ！</button>
             
             <div id="loading-msg" class="hidden">AI準備中...</div>
             <div class="credit">音楽素材：魔王魂 / AR Spark</div>
@@ -78,316 +78,209 @@
             <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
             <div class="score-val"><span id="final-score">0</span></div>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-result">0</span></p>
-            <button onclick="returnToTitle()">タイトルへ</button>
+            <button id="return-btn">タイトルへ</button>
         </div>
         <div id="charge-bar-container"><div id="charge-bar"></div></div>
     </div>
 
     <script>
-        log("Main Script Loading...");
+        // 全体をtry-catchで囲み、文法エラーでも理由を表示させる
+        try {
+            log("Script Start");
 
-        // === グローバル変数 ===
-        const CAM_W = 640; 
-        const CAM_H = 480;
-        
-        let poseNet;
-        let poses = [];
-        let video;
-        let vScale = 1.0; 
-        let videoX = 0, videoY = 0;
-
-        let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
-        let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
-        
-        let balloons = [];
-        let floatingTexts = []; 
-        let score = 0;
-        let highScore = 0;
-        let timeLeft = 60;
-        let gameState = 'INIT'; 
-        let trackedPos = [null, null]; 
-        
-        let chargeTimer = 0;
-        let isCharging = false;
-        let isFiring = false;
-        let fireTimer = 0;
-        let cooldownTimer = 0;
-        let needsSeparation = false; 
-        let osc, noiseOsc;
-
-        let hasCollectedWater = false;
-        let waterSpawned = false;
-        let warningTextX = 0;
-        let extraTimer = 0;
-        let boss = null;
-        let bossBaseY = 0; 
-        let bossIsDead = false;
-        let modelIsReady = false;
-
-        // === ボタンアクション ===
-        // 名前を bootGame に変更して重複回避
-        window.bootGame = function() {
-            log("Boot Clicked");
-            document.getElementById('init-btn').classList.add('hidden');
-            document.getElementById('loading-msg').classList.remove('hidden');
-            document.getElementById('loading-msg').innerText = "カメラ許可を求めています...";
-
-            // AudioContext起動
-            if (typeof userStartAudio !== 'undefined') {
-                userStartAudio().then(() => log("Audio Started"));
-            }
-
-            let constraints = {
-                video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
-                audio: false
-            };
+            const CAM_W = 640; 
+            const CAM_H = 480;
             
-            if (location.hostname.includes("github.io")) {
-                constraints.video.facingMode = "user";
-            }
+            let poseNet;
+            let poses = [];
+            let video;
+            let vScale = 1.0; 
+            let videoX = 0, videoY = 0;
 
-            video = createCapture(constraints, function(stream) { 
-                log("Cam OK");
-                document.getElementById('loading-msg').innerText = "AIモデル読み込み中...";
-                initPoseNet();
+            let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
+            let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
+            
+            let imagesLoaded = { water: false, enemy1: false, enemy2: false, boss: false, bossEnd: false };
+            let soundLoaded = { normal: false, extra1: false, boss: false, victory: false };
+
+            let balloons = [];
+            let floatingTexts = []; 
+            let score = 0;
+            let highScore = 0;
+            let timeLeft = 60;
+            let gameState = 'INIT'; 
+            let trackedPos = [null, null]; 
+            
+            let chargeTimer = 0;
+            let isCharging = false;
+            let isFiring = false;
+            let fireTimer = 0;
+            let cooldownTimer = 0;
+            let needsSeparation = false; 
+            let osc, noiseOsc;
+
+            let hasCollectedWater = false;
+            let waterSpawned = false;
+            let warningTextX = 0;
+            let extraTimer = 0;
+            let boss = null;
+            let bossBaseY = 0; 
+            let bossIsDead = false;
+            let modelIsReady = false;
+
+            // ■■■ イベント設定 ■■■
+            // ページ読み込み完了後にボタンイベントを登録
+            window.addEventListener('load', function() {
+                log("Window Loaded");
+                document.getElementById('init-btn').addEventListener('click', bootGameSystem);
+                document.getElementById('start-btn').addEventListener('click', startGameSystem);
+                document.getElementById('return-btn').addEventListener('click', returnToTitleSystem);
             });
-            
-            if(video) {
-                video.size(CAM_W, CAM_H);
-                video.hide();
-                if(video.elt) video.elt.setAttribute('playsinline', '');
-            }
-            
-            setupSounds();
-        };
 
-        window.startGame = function() {
-            log("Game Start");
-            document.getElementById('title-screen').classList.add('hidden');
-            document.getElementById('result-screen').classList.add('hidden');
-            gameState = 'COUNTDOWN'; countdownVal = 3;
-            document.getElementById('charge-bar-container').style.display = 'block';
-        };
+            // ■■■ ゲームシステム関数 ■■■
+            function bootGameSystem() {
+                log("Boot Clicked");
+                document.getElementById('init-btn').classList.add('hidden');
+                document.getElementById('loading-msg').classList.remove('hidden');
+                document.getElementById('loading-msg').innerText = "カメラ許可を求めています...";
 
-        window.returnToTitle = function() { 
-            gameState = 'TITLE'; 
-            stopAllSounds();
-            document.getElementById('result-screen').classList.add('hidden');
-            document.getElementById('title-screen').classList.remove('hidden');
-            document.getElementById('title-screen').style.display = 'flex'; 
-            document.getElementById('charge-bar-container').style.display = 'none';
-            document.getElementById('init-btn').classList.add('hidden');
-            document.getElementById('start-btn').classList.remove('hidden');
-            document.getElementById('loading-msg').classList.add('hidden');
-        };
+                // AudioContext起動
+                if (typeof userStartAudio !== 'undefined') {
+                    userStartAudio().then(() => log("Audio Started"));
+                }
 
-        // === P5.js 関数 ===
-
-        function setup() {
-            log("P5 Setup");
-            let c = createCanvas(windowWidth, windowHeight);
-            c.style('display', 'block');
-            colorMode(RGB, 255, 255, 255, 255);
-            background(0);
-
-            loadResources();
-
-            let savedScore = localStorage.getItem('kamehameha_highscore');
-            if(savedScore) highScore = parseInt(savedScore);
-            updateScoreLabels();
-            
-            bossBaseY = height * 0.6;
-            log("Setup Done");
-        }
-
-        function initPoseNet() {
-            let options = {
-                architecture: 'MobileNetV1', imageScaleFactor: 0.3, outputStride: 16,
-                flipHorizontal: true, minConfidence: 0.5, scoreThreshold: 0.5,
-                detectionType: 'single', multiplier: 0.75
-            };
-            
-            try {
-                poseNet = ml5.poseNet(video, options, modelReady);
-                poseNet.on('pose', function(results) { poses = results; });
-            } catch(e) {
-                log("ML5 Error: " + e);
-            }
-        }
-
-        function modelReady() {
-            log("AI Ready");
-            modelIsReady = true;
-            document.getElementById('loading-msg').classList.add('hidden');
-            document.getElementById('start-btn').classList.remove('hidden');
-        }
-
-        function loadResources() {
-            // エラーが出ても止まらないロード
-            imgWater = loadImage('water.png', ()=>{}, ()=>{ log("No:water"); });
-            imgEnemy1 = loadImage('enemy1.png', ()=>{}, ()=>{ log("No:enm1"); });
-            imgEnemy2 = loadImage('enemy2.png', ()=>{}, ()=>{ log("No:enm2"); });
-            imgBoss = loadImage('boss.png', ()=>{}, ()=>{ log("No:boss"); });
-            imgBossEnd = loadImage('boss_end.png', ()=>{}, ()=>{ log("No:boss_e"); });
-            
-            bgmNormal = loadSound('normal_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_n"); });
-            bgmExtra1 = loadSound('extra1_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_ex"); });
-            bgmBoss = loadSound('boss_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_b"); });
-            bgmVictory = loadSound('victory.mp3', ()=>{}, ()=>{ log("No:bgm_v"); });
-        }
-
-        function setupSounds() {
-            osc = new p5.Oscillator('sine');
-            osc.amp(0); osc.start();
-            noiseOsc = new p5.Noise('brown');
-            noiseOsc.amp(0); noiseOsc.start();
-        }
-
-        function stopAllSounds() {
-            if(bgmNormal && bgmNormal.isPlaying()) bgmNormal.stop();
-            if(bgmExtra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
-            if(bgmBoss && bgmBoss.isPlaying()) bgmBoss.stop();
-            if(bgmVictory && bgmVictory.isPlaying()) bgmVictory.stop();
-        }
-
-        function updateScoreLabels() {
-            let elT = document.getElementById('high-score-title');
-            let elR = document.getElementById('high-score-result');
-            if(elT) elT.innerText = formatScore(highScore);
-            if(elR) elR.innerText = formatScore(highScore);
-        }
-
-        function formatScore(n) {
-            return n.toLocaleString();
-        }
-
-        function draw() {
-            background(0);
-            
-            if (video && video.width) {
-                let scaleW = width / video.width;
-                let scaleH = height / video.height;
-                vScale = max(scaleW, scaleH);
-                let renderW = video.width * vScale;
-                let renderH = video.height * vScale;
-                videoX = (width - renderW) / 2;
-                videoY = (height - renderH) / 2;
-
-                push();
-                translate(width, 0);
-                scale(-1, 1);
-                image(video, -(videoX + renderW), videoY, renderW, renderH); 
-                pop();
+                let constraints = {
+                    video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
+                    audio: false
+                };
                 
-                fill(0, 150); 
-                noStroke();
-                rect(0, 0, width, height);
+                if (location.hostname.includes("github.io")) {
+                    constraints.video.facingMode = "user";
+                }
+
+                video = createCapture(constraints, function(stream) { 
+                    log("Cam OK");
+                    document.getElementById('loading-msg').innerText = "AIモデル読み込み中...";
+                    initPoseNet();
+                });
+                
+                if(video) {
+                    video.size(CAM_W, CAM_H);
+                    video.hide();
+                    if(video.elt) video.elt.setAttribute('playsinline', '');
+                }
+                
+                setupSounds();
             }
 
-            if (gameState === 'INIT' || gameState === 'LOADING' || gameState === 'TITLE') {
-                updatePoseTracking();
-                drawSkeletonDebug();
-            } else if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
-                updatePoseTracking(); 
-                updateGameLogic();    
-                drawGameObjects();
-                drawGameUI(); 
-                drawSkeletonDebug();
-            } else if (gameState === 'WARNING') {
-                updatePoseTracking(); 
-                drawWarning();
-            } else if (gameState === 'COUNTDOWN') {
-                updatePoseTracking(); 
-                drawCountdown();
+            function startGameSystem() {
+                log("Game Start");
+                document.getElementById('title-screen').classList.add('hidden');
+                document.getElementById('result-screen').classList.add('hidden');
+                gameState = 'COUNTDOWN'; countdownVal = 3;
+                document.getElementById('charge-bar-container').style.display = 'block';
             }
-        }
 
-        function updatePoseTracking() {
-            trackedPos = [null, null];
-            if (poses.length > 0) {
-                let pose = poses[0].pose;
-                if (pose.leftWrist.confidence > 0.1) trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
-                if (pose.rightWrist.confidence > 0.1) trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
-            } else {
-                if(mouseIsPressed) {
-                    trackedPos[0] = {x:mouseX-50, y:mouseY};
-                    trackedPos[1] = {x:mouseX+50, y:mouseY};
+            function returnToTitleSystem() { 
+                gameState = 'TITLE'; 
+                stopAllSounds();
+                document.getElementById('result-screen').classList.add('hidden');
+                document.getElementById('title-screen').classList.remove('hidden');
+                document.getElementById('title-screen').style.display = 'flex'; 
+                document.getElementById('charge-bar-container').style.display = 'none';
+                document.getElementById('init-btn').classList.add('hidden');
+                document.getElementById('start-btn').classList.remove('hidden');
+                document.getElementById('loading-msg').classList.add('hidden');
+            }
+
+            // ■■■ P5.js 関数群 ■■■
+
+            // グローバルスコープに関数を割り当て（p5.jsが呼べるように）
+            window.setup = function() {
+                log("P5 Setup");
+                let c = createCanvas(windowWidth, windowHeight);
+                c.style('display', 'block');
+                colorMode(RGB, 255, 255, 255, 255);
+                background(0);
+
+                loadResources();
+
+                let savedScore = localStorage.getItem('kamehameha_highscore');
+                if(savedScore) highScore = parseInt(savedScore);
+                updateScoreLabels();
+                
+                bossBaseY = height * 0.6;
+                log("Setup Done");
+            };
+
+            window.draw = function() {
+                background(0);
+                
+                if (video && video.width) {
+                    let scaleW = width / video.width;
+                    let scaleH = height / video.height;
+                    vScale = max(scaleW, scaleH);
+                    let renderW = video.width * vScale;
+                    let renderH = video.height * vScale;
+                    videoX = (width - renderW) / 2;
+                    videoY = (height - renderH) / 2;
+
+                    push();
+                    translate(width, 0);
+                    scale(-1, 1);
+                    image(video, -(videoX + renderW), videoY, renderW, renderH); 
+                    pop();
+                    
+                    fill(0, 150); 
+                    noStroke();
+                    rect(0, 0, width, height);
+                }
+
+                if (gameState === 'INIT' || gameState === 'LOADING' || gameState === 'TITLE') {
+                    updatePoseTracking();
+                    drawSkeletonDebug();
+                } else if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
+                    updatePoseTracking(); 
+                    updateGameLogic();    
+                    drawGameObjects();
+                    drawGameUI(); 
+                    drawSkeletonDebug();
+                } else if (gameState === 'WARNING') {
+                    updatePoseTracking(); 
+                    drawWarning();
+                } else if (gameState === 'COUNTDOWN') {
+                    updatePoseTracking(); 
+                    drawCountdown();
+                }
+            };
+
+            window.windowResized = function() { 
+                resizeCanvas(windowWidth, windowHeight);
+                bossBaseY = height * 0.6;
+            };
+
+            // ■■■ 内部ロジック ■■■
+
+            function initPoseNet() {
+                let options = {
+                    architecture: 'MobileNetV1', imageScaleFactor: 0.3, outputStride: 16,
+                    flipHorizontal: true, minConfidence: 0.5, scoreThreshold: 0.5,
+                    detectionType: 'single', multiplier: 0.75
+                };
+                
+                try {
+                    poseNet = ml5.poseNet(video, options, modelReady);
+                    poseNet.on('pose', function(results) { poses = results; });
+                } catch(e) {
+                    log("ML5 Error: " + e);
                 }
             }
-        }
 
-        function transformCoords(x, y) {
-            let screenX = map(x, 0, video.width, width, 0); 
-            let screenY = map(y, 0, video.height, 0, height);
-            return { x: screenX, y: screenY };
-        }
-
-        function drawSkeletonDebug() {
-            noFill(); strokeWeight(5);
-            if (trackedPos[0]) { stroke(0, 255, 200); circle(trackedPos[0].x, trackedPos[0].y, 50); }
-            if (trackedPos[1]) { stroke(255, 50, 50); circle(trackedPos[1].x, trackedPos[1].y, 50); }
-        }
-
-        function updateGameLogic() {
-            if (frameCount % 60 === 0) {
-                if (gameState === 'GAME' && timeLeft > 0) timeLeft--;
-                if ((gameState === 'EXTRA1' || gameState === 'EXTRA2') && extraTimer > 0) extraTimer--;
+            function modelReady() {
+                log("AI Ready");
+                modelIsReady = true;
+                document.getElementById('loading-msg').classList.add('hidden');
+                document.getElementById('start-btn').classList.remove('hidden');
             }
 
-            if (gameState === 'GAME') {
-                if (timeLeft <= 20 && !waterSpawned && !hasCollectedWater) {
-                    spawnWater();
-                    waterSpawned = true;
-                }
-                if (timeLeft <= 0) {
-                    if (hasCollectedWater) {
-                        gameState = 'WARNING';
-                        warningTextX = width;
-                        if(bgmNormal && bgmNormal.isPlaying()) bgmNormal.stop();
-                    } else {
-                        endGame();
-                    }
-                }
-            } else if (gameState === 'EXTRA1') {
-                if (extraTimer <= 0) {
-                    startExtraStage2();
-                }
-            } else if (gameState === 'EXTRA2') {
-                if (bossIsDead && extraTimer <= 0) endGame();
-                else if (!bossIsDead && extraTimer <= 0) endGame(); 
-            }
-
-            handleKamehameha();
-            updateBalloons();
-            updateFloatingTexts();
-            if (gameState === 'EXTRA2') updateBoss();
-        }
-
-        function spawnWater() {
-            balloons.push({
-                type: 'WATER',
-                x: random(100, width-100),
-                y: height + 50,
-                r: min(width, height) * 0.1, 
-                speed: 4,
-                c: color(0, 100, 255)
-            });
-        }
-
-        function startExtraStage1() {
-            gameState = 'EXTRA1';
-            balloons = [];
-            extraTimer = 15;
-            score += 0; 
-            if (bgmExtra1 && bgmExtra1.isLoaded()) {
-                bgmExtra1.setVolume(0.5);
-                bgmExtra1.loop();
-            }
-        }
-
-        function startExtraStage2() {
-            gameState = 'EXTRA2';
-            balloons = [];
-            extraTimer = 15;
-            boss = { x: width/2, y: bossBaseY, w: min(width, height)*0.5, h: min(width, height)*0.5, hp: 2, justHit: false };
-            bossIsDead = false;
+            function loadResources() {
