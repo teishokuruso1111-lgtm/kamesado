@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Click Start Ver）</title>
+    <title>かめはめ波（Safe Start Ver）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; }
         
-        /* ログ表示（確認用） */
+        /* ログ表示 */
         #debug-log {
             position: absolute; top: 0; left: 0; width: 100%; 
             background: rgba(0,0,0,0.5); color: #00FF00; 
@@ -35,12 +35,9 @@
         
         h1 { color: #00FF00; font-size: clamp(40px, 10vw, 80px); margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
         p { color: white; font-size: clamp(16px, 4vw, 24px); margin-bottom: 30px; font-weight: bold; text-align: center; line-height: 1.5; }
-        
         .score-val { font-size: clamp(40px, 10vw, 80px); color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 30px; }
-
         #charge-bar-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
-        
         .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
         #loading-msg { color: #00FF00; font-size: 18px; font-weight: bold; margin-top: 20px; }
     </style>
@@ -61,7 +58,7 @@
     <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
 </head>
 <body>
-    <div id="debug-log">System Ready...<br></div>
+    <div id="debug-log">System Loading...<br></div>
     
     <div id="ui-layer">
         <div id="title-screen" class="screen">
@@ -69,8 +66,7 @@
             <p>〜 AI モーションキャプチャ版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             
-            <button onclick="userStart()" id="init-btn">カメラ起動</button>
-            
+            <button onclick="window.initGameSystem()" id="init-btn">カメラ起動</button>
             <button onclick="startGame()" id="start-btn" class="hidden">あそぶ！</button>
             
             <div id="loading-msg" class="hidden">AI準備中...</div>
@@ -88,6 +84,8 @@
     </div>
 
     <script>
+        log("Script Start");
+
         const CAM_W = 640; 
         const CAM_H = 480;
         
@@ -128,16 +126,13 @@
         let bossIsDead = false;
         let modelIsReady = false;
 
-        // preloadは削除しました！これで止まることはありません。
-
         function setup() {
-            log("Setup Start");
+            log("Setup Called");
             let c = createCanvas(windowWidth, windowHeight);
             c.style('display', 'block');
             colorMode(RGB, 255, 255, 255, 255);
             background(0);
 
-            // リソース読み込みはここで行う
             loadResources();
 
             let savedScore = localStorage.getItem('kamehameha_highscore');
@@ -145,12 +140,261 @@
             updateScoreLabels();
             
             bossBaseY = height * 0.6;
-            log("Setup Done. Waiting for click.");
+            log("Setup Done");
         }
 
-        // ユーザーが「カメラ起動」ボタンを押したら実行
-        function userStart() {
-            log("User Clicked Start");
+        // ★修正点：関数をwindowに直接登録して確実に見つけられるようにする
+        window.initGameSystem = function() {
+            log("Btn Clicked");
             document.getElementById('init-btn').classList.add('hidden');
             document.getElementById('loading-msg').classList.remove('hidden');
-            document.getElementById('loading-msg').innerText = "カメラ許可
+            document.getElementById('loading-msg').innerText = "カメラ許可を求めています...";
+
+            userStartAudio().then(() => {
+                log("Audio Start");
+            });
+
+            let constraints = {
+                video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
+                audio: false
+            };
+            
+            if (location.hostname.includes("github.io")) {
+                constraints.video.facingMode = "user";
+            }
+
+            video = createCapture(constraints, function(stream) { 
+                log("Cam Active");
+                document.getElementById('loading-msg').innerText = "AIモデル読み込み中...";
+                initPoseNet();
+            });
+            
+            if(video) {
+                video.size(CAM_W, CAM_H);
+                video.hide();
+                if(video.elt) {
+                    video.elt.setAttribute('playsinline', '');
+                }
+            }
+            
+            setupSounds();
+        };
+
+        function initPoseNet() {
+            let options = {
+                architecture: 'MobileNetV1',
+                imageScaleFactor: 0.3,
+                outputStride: 16,
+                flipHorizontal: true,
+                minConfidence: 0.5,
+                scoreThreshold: 0.5,
+                detectionType: 'single',
+                multiplier: 0.75
+            };
+            
+            poseNet = ml5.poseNet(video, options, modelReady);
+            poseNet.on('pose', function(results) {
+                poses = results;
+            });
+        }
+
+        function modelReady() {
+            log("AI Ready");
+            modelIsReady = true;
+            document.getElementById('loading-msg').classList.add('hidden');
+            document.getElementById('start-btn').classList.remove('hidden');
+        }
+
+        function loadResources() {
+            imgWater = loadImage('water.png', ()=>{}, ()=>{ log("No:water"); });
+            imgEnemy1 = loadImage('enemy1.png', ()=>{}, ()=>{ log("No:enm1"); });
+            imgEnemy2 = loadImage('enemy2.png', ()=>{}, ()=>{ log("No:enm2"); });
+            imgBoss = loadImage('boss.png', ()=>{}, ()=>{ log("No:boss"); });
+            imgBossEnd = loadImage('boss_end.png', ()=>{}, ()=>{ log("No:boss_e"); });
+            
+            bgmNormal = loadSound('normal_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_n"); });
+            bgmExtra1 = loadSound('extra1_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_ex"); });
+            bgmBoss = loadSound('boss_bgm.mp3', ()=>{}, ()=>{ log("No:bgm_b"); });
+            bgmVictory = loadSound('victory.mp3', ()=>{}, ()=>{ log("No:bgm_v"); });
+        }
+
+        function setupSounds() {
+            osc = new p5.Oscillator('sine');
+            osc.amp(0); osc.start();
+            noiseOsc = new p5.Noise('brown');
+            noiseOsc.amp(0); noiseOsc.start();
+        }
+
+        function updateScoreLabels() {
+            document.getElementById('high-score-title').innerText = formatScore(highScore);
+            document.getElementById('high-score-result').innerText = formatScore(highScore);
+        }
+
+        function formatScore(n) {
+            return n.toLocaleString();
+        }
+
+        function draw() {
+            background(0);
+            
+            if (video && video.width) {
+                let scaleW = width / video.width;
+                let scaleH = height / video.height;
+                vScale = max(scaleW, scaleH);
+                let renderW = video.width * vScale;
+                let renderH = video.height * vScale;
+                videoX = (width - renderW) / 2;
+                videoY = (height - renderH) / 2;
+
+                push();
+                translate(width, 0);
+                scale(-1, 1);
+                image(video, -(videoX + renderW), videoY, renderW, renderH); 
+                pop();
+                
+                fill(0, 150); 
+                noStroke();
+                rect(0, 0, width, height);
+            }
+
+            // 初期状態
+            if (gameState === 'INIT' || gameState === 'LOADING' || gameState === 'TITLE') {
+                updatePoseTracking();
+                drawSkeletonDebug();
+            }
+
+            if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
+                updatePoseTracking(); 
+                updateGameLogic();    
+                drawGameObjects();
+                drawGameUI(); 
+                drawSkeletonDebug();
+            } else if (gameState === 'WARNING') {
+                updatePoseTracking(); 
+                drawWarning();
+            } else if (gameState === 'COUNTDOWN') {
+                updatePoseTracking(); 
+                drawCountdown();
+            }
+        }
+
+        function updatePoseTracking() {
+            trackedPos = [null, null];
+            if (poses.length > 0) {
+                let pose = poses[0].pose;
+                if (pose.leftWrist.confidence > 0.1) trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
+                if (pose.rightWrist.confidence > 0.1) trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
+            } else {
+                if(mouseIsPressed) {
+                    trackedPos[0] = {x:mouseX-50, y:mouseY};
+                    trackedPos[1] = {x:mouseX+50, y:mouseY};
+                }
+            }
+        }
+
+        function transformCoords(x, y) {
+            let screenX = map(x, 0, video.width, width, 0); 
+            let screenY = map(y, 0, video.height, 0, height);
+            return { x: screenX, y: screenY };
+        }
+
+        function drawSkeletonDebug() {
+            noFill(); strokeWeight(5);
+            if (trackedPos[0]) { stroke(0, 255, 200); circle(trackedPos[0].x, trackedPos[0].y, 50); }
+            if (trackedPos[1]) { stroke(255, 50, 50); circle(trackedPos[1].x, trackedPos[1].y, 50); }
+        }
+
+        function updateGameLogic() {
+            if (frameCount % 60 === 0) {
+                if (gameState === 'GAME' && timeLeft > 0) timeLeft--;
+                if ((gameState === 'EXTRA1' || gameState === 'EXTRA2') && extraTimer > 0) extraTimer--;
+            }
+
+            if (gameState === 'GAME') {
+                if (timeLeft <= 20 && !waterSpawned && !hasCollectedWater) {
+                    spawnWater();
+                    waterSpawned = true;
+                }
+                if (timeLeft <= 0) {
+                    if (hasCollectedWater) {
+                        gameState = 'WARNING';
+                        warningTextX = width;
+                        if(soundLoaded.normal && bgmNormal.isPlaying()) bgmNormal.stop();
+                    } else {
+                        endGame();
+                    }
+                }
+            } else if (gameState === 'EXTRA1') {
+                if (extraTimer <= 0) {
+                    startExtraStage2();
+                }
+            } else if (gameState === 'EXTRA2') {
+                if (bossIsDead && extraTimer <= 0) endGame();
+                else if (!bossIsDead && extraTimer <= 0) endGame(); 
+            }
+
+            handleKamehameha();
+            updateBalloons();
+            updateFloatingTexts();
+            if (gameState === 'EXTRA2') updateBoss();
+        }
+
+        function spawnWater() {
+            balloons.push({
+                type: 'WATER',
+                x: random(100, width-100),
+                y: height + 50,
+                r: min(width, height) * 0.1, 
+                speed: 4,
+                c: color(0, 100, 255)
+            });
+        }
+
+        function startExtraStage1() {
+            gameState = 'EXTRA1';
+            balloons = [];
+            extraTimer = 15;
+            score += 0; 
+            if (soundLoaded.extra1 && bgmExtra1.isLoaded()) {
+                bgmExtra1.setVolume(0.5);
+                bgmExtra1.loop();
+            }
+        }
+
+        function startExtraStage2() {
+            gameState = 'EXTRA2';
+            balloons = [];
+            extraTimer = 15;
+            boss = { x: width/2, y: bossBaseY, w: min(width, height)*0.5, h: min(width, height)*0.5, hp: 2, justHit: false };
+            bossIsDead = false;
+            
+            if (soundLoaded.extra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
+            if (soundLoaded.boss && bgmBoss.isLoaded()) {
+                bgmBoss.setVolume(0.5);
+                bgmBoss.loop();
+            }
+        }
+
+        function updateBalloons() {
+            if (!isFiring && gameState !== 'EXTRA2' && frameCount % 30 === 0) {
+                spawnBalloon();
+            }
+
+            for (let i = balloons.length - 1; i >= 0; i--) {
+                let b = balloons[i];
+                b.y -= b.speed;
+                let hit = false;
+                if (!isFiring) {
+                    for (let p of trackedPos) {
+                        if (p && dist(p.x, p.y, b.x, b.y) < b.r + 80) hit = true; 
+                    }
+                }
+                if (hit) { popBalloon(i); } 
+                else if (b.y < -b.r) { balloons.splice(i, 1); }
+            }
+        }
+
+        function spawnBalloon() {
+            let sizeBase = min(width, height) * 0.1;
+            if (gameState === 'GAME') {
+                balloons.push({ type: 'NORMAL', x: random(50, width-50), y: height+50, r: sizeBase, c: color(random(255), random(255), random(25
