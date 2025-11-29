@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Safe Boot）</title>
+    <title>かめはめ波（Grand Master）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
         
-        /* エラーログ（最前面） */
         #debug-log {
             position: absolute; top: 0; left: 0; width: 100%; 
-            background: rgba(0,0,0,0.8); color: #00FF00; 
-            font-size: 14px; z-index: 10000; pointer-events: none;
+            background: rgba(0,0,0,0.5); color: #00FF00; 
+            font-size: 12px; z-index: 10000; pointer-events: none;
             white-space: pre-wrap; padding: 5px; border-bottom: 1px solid #444;
+            display: none; /* 通常は非表示 */
         }
 
         canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
@@ -43,23 +43,12 @@
         #loading-msg { color: #00FF00; font-size: 18px; font-weight: bold; margin-top: 20px; }
     </style>
 
-    <script>
-        function log(msg) {
-            console.log(msg);
-            var el = document.getElementById('debug-log');
-            if(el) el.innerHTML += msg + " | ";
-        }
-        window.onerror = function(msg, url, line) {
-            log("SysErr: " + msg);
-        };
-    </script>
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
     <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
 </head>
 <body>
-    <div id="debug-log">HTML Loaded.<br></div>
+    <div id="debug-log"></div>
     
     <div id="ui-layer">
         <div id="title-screen" class="screen">
@@ -85,8 +74,13 @@
     </div>
 
     <script>
-        // ▼▼▼ ここからスクリプト ▼▼▼
-        log("Script Start...");
+        // エラーログ
+        function log(msg) {
+            console.log(msg);
+            var el = document.getElementById('debug-log');
+            if(el) el.innerHTML += msg + " | ";
+        }
+        window.onerror = function(msg, url, line) { log("Err:" + msg); };
 
         const CAM_W = 640; 
         const CAM_H = 480;
@@ -100,6 +94,9 @@
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
         let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
         
+        let imagesLoaded = { water: false, enemy1: false, enemy2: false, boss: false, bossEnd: false };
+        let soundLoaded = { normal: false, extra1: false, boss: false, victory: false };
+
         let balloons = [];
         let floatingTexts = []; 
         let score = 0;
@@ -125,15 +122,11 @@
         let bossIsDead = false;
         let modelIsReady = false;
 
-        // ★★★ 安全起動システム ★★★
-        
-        // ページ読み込み完了時にボタンを有効化
+        // ★ボタンイベント登録（確実に行う）
         window.onload = function() {
-            log("Win Load OK.");
-            // ボタンに機能を割り当て
             let btn = document.getElementById('init-btn');
             btn.innerText = "カメラ起動";
-            btn.disabled = false; // ここで初めて押せるようになる
+            btn.disabled = false;
             btn.onclick = startCameraSequence;
 
             document.getElementById('start-btn').onclick = startGameSystem;
@@ -141,13 +134,12 @@
         };
 
         function startCameraSequence() {
-            log("Btn Push");
             document.getElementById('init-btn').classList.add('hidden');
             document.getElementById('loading-msg').classList.remove('hidden');
             document.getElementById('loading-msg').innerText = "カメラ許可を求めています...";
 
             if (typeof userStartAudio !== 'undefined') {
-                userStartAudio().then(() => log("Audio OK")).catch(e => log("Audio Err"));
+                userStartAudio();
             }
 
             let constraints = {
@@ -160,7 +152,6 @@
             }
 
             video = createCapture(constraints, function(stream) { 
-                log("Cam OK");
                 document.getElementById('loading-msg').innerText = "AIモデル読み込み中...";
                 initPoseNet();
             });
@@ -169,8 +160,6 @@
                 video.size(CAM_W, CAM_H);
                 video.hide();
                 if(video.elt) video.elt.setAttribute('playsinline', '');
-            } else {
-                log("Cam Fail");
             }
             
             setupSounds();
@@ -192,14 +181,12 @@
         }
 
         function modelReady() {
-            log("AI Ready!");
             modelIsReady = true;
             document.getElementById('loading-msg').classList.add('hidden');
             document.getElementById('start-btn').classList.remove('hidden');
         }
 
         function startGameSystem() {
-            log("Start!");
             document.getElementById('title-screen').classList.add('hidden');
             document.getElementById('result-screen').classList.add('hidden');
             gameState = 'COUNTDOWN'; countdownVal = 3;
@@ -218,10 +205,9 @@
             document.getElementById('loading-msg').classList.add('hidden');
         }
 
-        // --- p5.js Functions ---
+        // --- P5.js Main ---
 
         function setup() {
-            log("P5 Setup");
             let c = createCanvas(windowWidth, windowHeight);
             c.style('display', 'block');
             colorMode(RGB, 255, 255, 255, 255);
@@ -277,6 +263,7 @@
         function draw() {
             background(0);
             
+            // カメラ映像の描画
             if (video && video.width) {
                 let scaleW = width / video.width;
                 let scaleH = height / video.height;
@@ -292,6 +279,7 @@
                 image(video, -(videoX + renderW), videoY, renderW, renderH); 
                 pop();
                 
+                // 薄暗くするフィルター
                 fill(0, 150); 
                 noStroke();
                 rect(0, 0, width, height);
@@ -319,9 +307,11 @@
             trackedPos = [null, null];
             if (poses.length > 0) {
                 let pose = poses[0].pose;
+                // 信頼度判定
                 if (pose.leftWrist.confidence > 0.1) trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
                 if (pose.rightWrist.confidence > 0.1) trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
             } else {
+                // テスト用マウス操作
                 if(mouseIsPressed) {
                     trackedPos[0] = {x:mouseX-50, y:mouseY};
                     trackedPos[1] = {x:mouseX+50, y:mouseY};
@@ -337,6 +327,7 @@
 
         function drawSkeletonDebug() {
             noFill(); strokeWeight(5);
+            // 認識中の手を緑と赤で表示
             if (trackedPos[0]) { stroke(0, 255, 200); circle(trackedPos[0].x, trackedPos[0].y, 50); }
             if (trackedPos[1]) { stroke(255, 50, 50); circle(trackedPos[1].x, trackedPos[1].y, 50); }
         }
@@ -700,8 +691,6 @@
             resizeCanvas(windowWidth, windowHeight);
             bossBaseY = height * 0.6;
         }
-        
-        log("Ready");
     </script>
 </body>
 </html>
