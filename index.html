@@ -3,166 +3,361 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Rescue Ver）</title>
+    <title>かめはめ波（Color Reborn）</title>
     <style>
-        body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
+        /* ベーススタイル */
+        body { margin: 0; padding: 0; background: #333; overflow: hidden; font-family: sans-serif; user-select: none; -webkit-user-select: none; touch-action: none; color: white; }
         
-        /* ログ表示（原因特定用） */
-        #debug-log {
-            position: absolute; top: 0; left: 0; width: 100%; 
-            background: rgba(0,0,0,0.5); color: #00FF00; 
-            font-size: 12px; z-index: 20000; pointer-events: none;
-            white-space: pre-wrap; padding: 5px; border-bottom: 1px solid #444;
-        }
-
-        canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
+        /* UIレイヤー */
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 10; }
         
+        /* 共通ボタン */
         button { 
             background: linear-gradient(45deg, #FFD700, #FFA500); 
-            border: 3px solid #FFF; padding: 15px 50px; font-size: clamp(20px, 5vw, 30px); font-weight: 900; 
-            color: #333; border-radius: 50px; cursor: pointer; margin: 15px; pointer-events: auto; 
+            border: 3px solid #FFF; padding: 15px 40px; font-size: 24px; font-weight: 900; 
+            color: #333; border-radius: 50px; cursor: pointer; margin: 20px; pointer-events: auto; 
             box-shadow: 0 5px 15px rgba(0,0,0,0.5); text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
         }
-        button:active { transform: scale(0.95); }
+        button:active { transform: scale(0.95); background: #FFF; }
 
+        /* 画面パネル */
         .screen-panel { 
-            display: none; /* 初期状態はJSで制御 */
+            display: none; /* JSで制御 */
             flex-direction: column; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 30px; 
             border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 5%; pointer-events: auto;
             width: 90%; max-width: 600px; box-sizing: border-box;
+            text-align: center;
         }
         
-        /* キャリブレーション画面 */
-        #calibration-screen {
-            background: none; border: none; box-shadow: none;
-            width: 100%; height: 100%; justify-content: space-between;
-            padding: 40px; pointer-events: none;
+        /* キャリブレーション用（背景なし） */
+        #calib-panel {
+            display: none; width: 100%; height: 100%;
+            flex-direction: column; justify-content: space-between; align-items: center;
+            padding: 30px; pointer-events: none; 
         }
-        
-        .calib-text {
-            color: #FFF; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 4px #000;
-            background: rgba(0,0,0,0.6); padding: 15px 30px; border-radius: 50px; border: 3px solid #FFF; text-align: center;
-            margin-top: 20px; pointer-events: auto;
+        .calib-msg {
+            color: #FFF; font-size: 22px; font-weight: bold; text-shadow: 2px 2px 4px #000;
+            background: rgba(0,0,0,0.6); padding: 15px; border-radius: 30px; border: 2px solid #FFF;
+            pointer-events: auto;
         }
+
+        h1 { color: #00FF00; font-size: 40px; margin: 0 0 10px 0; text-shadow: 0 0 10px white; font-weight: 900; }
+        p { font-size: 16px; margin-bottom: 20px; font-weight: bold; }
         
-        h1 { color: #00FF00; font-size: clamp(40px, 10vw, 80px); margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
-        p { color: white; font-size: clamp(16px, 4vw, 24px); margin-bottom: 30px; font-weight: bold; text-align: center; line-height: 1.5; }
-        .score-val { font-size: clamp(40px, 10vw, 80px); color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 30px; }
-        
+        /* チャージバー */
         #charge-bar-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
-        .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
+        
+        /* 状態ログ（左上） */
+        #status-log { position: absolute; top: 0; left: 0; background: rgba(0,0,0,0.5); color: lime; font-size: 12px; padding: 5px; z-index: 20; }
     </style>
 
-    <script>
-        function log(msg) {
-            console.log(msg);
-            var el = document.getElementById('debug-log');
-            if(el) el.innerHTML += msg + " | ";
-        }
-        window.onerror = function(msg, url, line) {
-            log("Err: " + msg);
-        };
-    </script>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/addons/p5.sound.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
 <body>
-    <div id="debug-log">Init...<br></div>
+    <div id="status-log">Loading...</div>
 
     <div id="ui-layer">
         <div id="title-screen" class="screen-panel" style="display: flex;">
             <h1>かめはめ波</h1>
             <p>〜 佐渡ヶ島 決戦版 〜</p>
-            <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
+            <p style="color:#FFFF00">High Score: <span id="high-score">0</span></p>
             
             <button id="btn-start">あそぶ！</button>
-            
-            <div class="credit">音楽素材：魔王魂 / AR Spark</div>
+            <div style="font-size: 12px; color: #AAA; margin-top: 10px;">音楽：魔王魂 / AR Spark</div>
         </div>
 
-        <div id="calibration-screen" class="screen-panel" style="display: none;">
-            <div class="calib-text">白い枠の中に<br>リストバンドを入れて<br>画面をタップ！</div>
-            <div style="pointer-events: auto; margin-bottom: 50px;">
-                <button id="btn-reset" class="secondary" style="font-size:18px; padding:10px 30px;">タイトルへ戻る</button>
+        <div id="calib-panel">
+            <div class="calib-msg">白い枠の中に<br>リストバンドを入れて<br>画面をタップ！</div>
+            <div style="pointer-events: auto;">
+                <button id="btn-back-title" style="font-size: 16px; padding: 10px 30px;">タイトルへ</button>
             </div>
         </div>
 
-        <div id="result-screen" class="screen-panel" style="display: none;">
-            <h1 id="result-title">おしまい！</h1>
-            <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
-            <div class="score-val"><span id="final-score">0</span></div>
-            <p style="color:#FFFF00">ハイスコア: <span id="high-score-result">0</span></p>
-            <button id="btn-return">タイトルへ</button>
+        <div id="result-screen" class="screen-panel">
+            <h1 id="res-title">おしまい</h1>
+            <div style="font-size: 20px; color:#AAA;">スコア</div>
+            <div style="font-size: 50px; color:#00FFFF; font-weight:900; margin-bottom:20px;" id="res-score">0</div>
+            <button id="btn-retry">タイトルへ</button>
         </div>
         
         <div id="charge-bar-container"><div id="charge-bar"></div></div>
     </div>
 
     <script>
-        log("Script Start");
+        // --- ログ関数 ---
+        function log(msg) {
+            console.log(msg);
+            let el = document.getElementById('status-log');
+            if(el) el.innerText = msg;
+        }
 
         // --- 設定 ---
         const CAM_W = 640;
         const CAM_H = 480;
         const SKIP_STEP = 4; 
-        
         const HUE_THRESH = 20; 
         const SAT_THRESH = 30; 
         const VAL_THRESH = 30; 
-        
         const IMG_RATIO = 369 / 676; 
 
         // --- 変数 ---
         let video;
-        let targetHSV = null; 
+        let targetHSV = null;
         let trackedPos = [null, null]; 
         
-        let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
-        let bgmNormal, bgmExtra1, bgmBoss, bgmVictory;
+        // 画像オブジェクト
+        let imgs = {}; 
+        // 音声オブジェクト
+        let audios = {};
         
         let balloons = [];
         let floatingTexts = []; 
         let score = 0;
         let highScore = 0;
         let timeLeft = 60;
-        let gameState = 'TITLE'; 
+        let gameState = 'TITLE'; // TITLE, CALIB, COUNTDOWN, PLAY, EXTRA1, EXTRA2, RESULT
         
         let chargeTimer = 0;
-        let isCharging = false;
-        let isFiring = false;
-        let fireTimer = 0;
-        let cooldownTimer = 0;
-        let needsSeparation = false; 
-        let osc, noiseOsc;
+        let isCharging = false, isFiring = false, fireTimer = 0;
+        let needsSeparation = false;
+        
+        let hasCollectedWater = false, waterSpawned = false;
+        let warningTextX = 0, extraTimer = 0;
+        let boss = null, bossIsDead = false;
 
-        let hasCollectedWater = false;
-        let waterSpawned = false;
-        let warningTextX = 0;
-        let extraTimer = 0;
-        let boss = null;
-        let bossIsDead = false;
-
-        // ★ボタンイベント設定（HTML読み込み後に確実に実行）
+        // --- 起動時処理 ---
         window.onload = function() {
-            log("Window Loaded");
-            document.getElementById('btn-start').onclick = function() {
-                log("Start Clicked");
-                // オーディオコンテキストの開始
-                if (getAudioContext().state !== 'running') {
-                    userStartAudio().then(() => log("Audio Started"));
-                }
-                startCalibration();
-            };
-            document.getElementById('btn-reset').onclick = returnToTitle;
-            document.getElementById('btn-return').onclick = returnToTitle;
+            log("System Ready.");
+            // ボタンイベント登録
+            document.getElementById('btn-start').onclick = startApp;
+            document.getElementById('btn-back-title').onclick = returnTitle;
+            document.getElementById('btn-retry').onclick = returnTitle;
+            
+            // 音声読み込み
+            audios.normal = new Audio('normal_bgm.mp3'); audios.normal.loop = true;
+            audios.extra = new Audio('extra1_bgm.mp3'); audios.extra.loop = true;
+            audios.boss = new Audio('boss_bgm.mp3'); audios.boss.loop = true;
+            audios.win = new Audio('victory.mp3');
+            
+            let s = localStorage.getItem('kamehameha_highscore');
+            if(s) highScore = parseInt(s);
+            document.getElementById('high-score').innerText = highScore.toLocaleString();
         };
 
-        // --- 画面切り替えヘルパー ---
-        function showScreen(id) {
+        function startApp() {
+            // 音声コンテキスト解放（iOS対応）
+            audios.normal.play().then(()=>{ audios.normal.pause(); audios.normal.currentTime=0; }).catch(()=>{});
+            
+            // 画面遷移
             document.getElementById('title-screen').style.display = 'none';
-            document.getElementById('calibration-screen').style.display = 'none';
-            document.getElementById('result-screen').style
+            document.getElementById('calib-panel').style.display = 'flex';
+            gameState = 'CALIB';
+            
+            // カメラ起動（初回のみ）
+            if (!video) {
+                let constraints = {
+                    video: { width: {ideal: CAM_W}, height: {ideal: CAM_H} },
+                    audio: false
+                };
+                if (location.hostname.includes("github.io")) constraints.video.facingMode = "user";
+                
+                video = createCapture(constraints, function() {
+                    log("Camera OK");
+                });
+                video.size(CAM_W, CAM_H);
+                video.hide();
+                
+                if(video.elt) {
+                    video.elt.setAttribute('playsinline', '');
+                    video.elt.setAttribute('autoplay', '');
+                }
+            }
+        }
+
+        // --- p5.js Setup ---
+        function setup() {
+            let c = createCanvas(windowWidth, windowHeight);
+            c.style('display', 'block');
+            colorMode(RGB, 255, 255, 255, 255);
+            background(0);
+            
+            // 画像読み込み（エラー無視）
+            imgs.water = loadImage('water.png');
+            imgs.enemy1 = loadImage('enemy1.png');
+            imgs.enemy2 = loadImage('enemy2.png');
+            imgs.boss = loadImage('boss.png');
+            imgs.bossEnd = loadImage('boss_end.png');
+        }
+
+        // --- メインループ ---
+        function draw() {
+            background(0);
+            
+            // 1. カメラ描画
+            if (video && video.width) {
+                let scaleW = width / video.width;
+                let scaleH = height / video.height;
+                let vScale = max(scaleW, scaleH);
+                let w = video.width * vScale;
+                let h = video.height * vScale;
+                let x = (width - w) / 2;
+                let y = (height - h) / 2;
+                
+                push();
+                translate(width, 0);
+                scale(-1, 1);
+                image(video, -(x + w), y, w, h);
+                pop();
+                
+                // 座標変換用データ保存
+                window.vidScale = vScale;
+                window.vidX = x;
+                window.vidY = y;
+            }
+
+            // 2. 処理分岐
+            if (gameState === 'CALIB') {
+                drawCalibrationGuide();
+                processVideoHSV();
+            } else if (['PLAY', 'EXTRA1', 'EXTRA2'].includes(gameState)) {
+                processVideoHSV(); 
+                updateGame();    
+                drawGame();
+                drawUI(); 
+            } else if (gameState === 'WARNING') {
+                processVideoHSV();
+                drawWarning();
+            } else if (gameState === 'COUNTDOWN') {
+                processVideoHSV();
+                drawCountdown();
+            }
+        }
+
+        // --- HSV色追跡 ---
+        function rgbToHsv(r, g, b) {
+            r/=255; g/=255; b/=255;
+            let max = Math.max(r, g, b), min = Math.min(r, g, b);
+            let h, s, v = max;
+            let d = max - min;
+            s = max == 0 ? 0 : d / max;
+            if (max == min) h = 0; 
+            else {
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / d + 2; break;
+                    case b: h = (r - g) / d + 4; break;
+                }
+                h /= 6;
+            }
+            return [h * 360, s * 100, v * 100];
+        }
+
+        function processVideoHSV() {
+            if (!targetHSV || !video || video.width === 0) return;
+            video.loadPixels();
+            if (video.pixels.length === 0) return;
+            
+            let matchingPixels = [];
+            for (let y = 0; y < video.height; y += SKIP_STEP) {
+                for (let x = 0; x < video.width; x += SKIP_STEP) {
+                    // 四隅無視
+                    if (x < 10 || y < 10 || x > video.width - 10 || y > video.height - 10) continue;
+                    
+                    let i = (y * video.width + x) * 4;
+                    let r = video.pixels[i];
+                    let g = video.pixels[i+1];
+                    let b = video.pixels[i+2];
+                    let hsv = rgbToHsv(r, g, b);
+                    
+                    if (hsv[1] < SAT_THRESH || hsv[2] < VAL_THRESH) continue;
+                    
+                    let diff = Math.abs(hsv[0] - targetHSV[0]);
+                    if (diff > 180) diff = 360 - diff;
+                    
+                    if (diff < HUE_THRESH) {
+                        let screenX = width - (window.vidX + x * window.vidScale); 
+                        let screenY = window.vidY + y * window.vidScale;
+                        matchingPixels.push({x: screenX, y: screenY});
+                    }
+                }
+            }
+
+            if (matchingPixels.length < 20) return; // ノイズなら無視
+            
+            matchingPixels.sort((a, b) => a.x - b.x);
+            let mid = Math.floor(matchingPixels.length / 2);
+            
+            let sumX=0, sumY=0, count=0;
+            for(let i=0; i<mid; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
+            if(count > 5) trackedPos[0] = {x: sumX/count, y: sumY/count};
+            
+            sumX=0; sumY=0; count=0;
+            for(let i=mid; i<matchingPixels.length; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
+            if(count > 5) trackedPos[1] = {x: sumX/count, y: sumY/count};
+            
+            // 手のマーカー
+            noFill(); stroke(0, 255, 0); strokeWeight(5);
+            if(trackedPos[0]) circle(trackedPos[0].x, trackedPos[0].y, 60);
+            if(trackedPos[1]) circle(trackedPos[1].x, trackedPos[1].y, 60);
+        }
+
+        function drawCalibrationGuide() {
+            rectMode(CENTER); noFill(); stroke(255); strokeWeight(5);
+            rect(width/2, height/2, 150, 150);
+            
+            // 今の色取得
+            video.loadPixels();
+            if(video.pixels.length > 0) {
+                let cx = video.width / 2; let cy = video.height / 2;
+                let i = (Math.floor(cy) * video.width + Math.floor(cx)) * 4;
+                fill(video.pixels[i], video.pixels[i+1], video.pixels[i+2]);
+                stroke(255); strokeWeight(2);
+                rect(width/2, height/2 - 120, 60, 60);
+            }
+        }
+
+        // 画面タップで色登録
+        function mousePressed(e) {
+            if (e.target.tagName === 'BUTTON') return;
+            
+            if (gameState === 'CALIB' && video) {
+                video.loadPixels();
+                let sumR=0, sumG=0, sumB=0, count=0;
+                let cx = video.width / 2; let cy = video.height / 2;
+                // 中央付近を平均化
+                for(let dy=-5; dy<=5; dy++){
+                    for(let dx=-5; dx<=5; dx++){
+                        let i = (floor(cy+dy) * video.width + floor(cx+dx)) * 4;
+                        sumR+=video.pixels[i]; sumG+=video.pixels[i+1]; sumB+=video.pixels[i+2];
+                        count++;
+                    }
+                }
+                if(count>0) {
+                    targetHSV = rgbToHsv(sumR/count, sumG/count, sumB/count);
+                    log("Color Registered!");
+                    document.getElementById('calib-panel').style.display = 'none';
+                    document.getElementById('charge-bar-container').style.display = 'block';
+                    gameState = 'COUNTDOWN'; countdownVal = 3;
+                }
+            }
+        }
+
+        // --- ゲームロジック ---
+        function updateGame() {
+            // 時間
+            if (frameCount % 60 === 0) {
+                if (gameState === 'PLAY' && timeLeft > 0) timeLeft--;
+                if ((gameState === 'EXTRA1' || gameState === 'EXTRA2') && extraTimer > 0) extraTimer--;
+            }
+            // 遷移
+            if (gameState === 'PLAY') {
+                if (timeLeft <= 20 && !waterSpawned && !hasCollectedWater) { spawnWater(); waterSpawned = true; }
+                if (timeLeft <= 0) {
+                    if (hasCollectedWater) {
+                        gameState = 'WARNING'; warningTextX = width;
+                        stopBGM(); audios.extra.currentTime=0; audios.extra.play();
+                    } else { endGame(); }
+                }
+            } else if (gameState === 'EXTRA1' && extraTimer <= 0) {
