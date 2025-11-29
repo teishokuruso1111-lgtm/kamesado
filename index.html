@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>かめはめ波（CDN Repair Ver）</title>
+    <title>かめはめ波（AI PoseNet Ver）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
         canvas { display: block; }
@@ -11,62 +11,49 @@
         
         button { 
             background: linear-gradient(45deg, #FFD700, #FFA500); 
-            border: 3px solid #FFF; padding: 15px 50px; font-size: 28px; font-weight: 900; 
+            border: 3px solid #FFF; padding: 15px 50px; font-size: clamp(20px, 5vw, 30px); font-weight: 900; 
             color: #333; border-radius: 50px; cursor: pointer; margin: 15px; pointer-events: auto; transition: transform 0.1s; box-shadow: 0 5px 15px rgba(0,0,0,0.5); text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
         }
         button:active { transform: scale(0.95); }
-        button.secondary { background: #666; color: white; font-size: 18px; padding: 10px 30px; border: 2px solid #CCC; }
 
         .screen { 
             display: none; flex-direction: column; align-items: center; justify-content: center;
-            background: rgba(0, 0, 0, 0.85); padding: 40px; border-radius: 30px; 
-            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 60px; pointer-events: auto;
-        }
-
-        #calibration-screen {
-            display: none; width: 100%; height: 100%;
-            flex-direction: column; justify-content: space-between; align-items: center;
-            padding: 40px; box-sizing: border-box;
-            background: none !important; border: none !important; box-shadow: none !important; margin-top: 0 !important;
-        }
-        .calib-text {
-            color: #FFF; font-size: 32px; font-weight: bold; text-shadow: 2px 2px 4px #000;
-            background: rgba(0,0,0,0.6); padding: 15px 30px; border-radius: 50px; border: 3px solid #FFF; text-align: center;
+            background: rgba(0, 0, 0, 0.85); padding: 5%; border-radius: 30px; 
+            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 5%; pointer-events: auto;
+            width: 80%; max-width: 600px;
         }
         
-        h1 { color: #00FF00; font-size: 60px; margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
-        p { color: white; font-size: 24px; margin-bottom: 30px; font-weight: bold; text-align: center; line-height: 1.5; }
-        .score-label { font-size: 24px; color: #AAA; margin-bottom: 5px; }
-        .score-val { font-size: 60px; color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 30px; }
+        h1 { color: #00FF00; font-size: clamp(40px, 10vw, 80px); margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
+        p { color: white; font-size: clamp(16px, 4vw, 24px); margin-bottom: 30px; font-weight: bold; text-align: center; line-height: 1.5; }
+        
+        /* スコア表示なども画面サイズに合わせて可変に */
+        .score-val { font-size: clamp(40px, 8vw, 80px); color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 30px; }
 
         #charge-bar-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 80%; max-width: 500px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
         
-        /* クレジット表記 */
         .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
+        #loading-msg { color: #00FF00; font-size: 20px; font-weight: bold; margin-top: 20px; display: none; }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
+    <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
 </head>
 <body>
     <div id="ui-layer">
         <div id="title-screen" class="screen">
             <h1>かめはめ波</h1>
-            <p>〜 さいきょうの せんし 〜</p>
+            <p>〜 AI モーションキャプチャ版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
-            <button onclick="startCalibration()">あそぶ！</button>
+            <button onclick="startGame()" id="start-btn">ロード中...</button>
+            <div id="loading-msg">AIモデル準備中...<br>ちょっとまってね</div>
             <div class="credit">音楽素材：魔王魂 / AR Spark</div>
         </div>
-        <div id="calibration-screen">
-            <div class="calib-text">白い枠の中に<br>リストバンドを入れてクリック！</div>
-            <div style="pointer-events: auto; margin-bottom: 50px;">
-                <button onclick="resetCalibration()" class="secondary">やりなおす</button>
-            </div>
-        </div>
+
         <div id="result-screen" class="screen">
             <h1>おしまい！</h1>
-            <div class="score-label">今回のスコア</div>
+            <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
             <div class="score-val"><span id="final-score">0</span></div>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-result">0</span></p>
             <button onclick="returnToTitle()">タイトルへ</button>
@@ -75,11 +62,14 @@
     </div>
 
     <script>
-        const SKIP_STEP = 4; 
-        const CAM_W = 800; 
-        const CAM_H = 600;
-        const COLOR_DIST_SQ = 60 * 60; 
-        const WHITE_THRESHOLD = 230; 
+        let poseNet;
+        let poses = [];
+        let video;
+        
+        // 画面サイズ管理
+        let vScale = 1.0; 
+        let videoX = 0;
+        let videoY = 0;
 
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
         let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
@@ -87,15 +77,13 @@
         let imagesLoaded = { water: false, enemy1: false, enemy2: false, boss: false, bossEnd: false };
         let soundLoaded = { normal: false, extra1: false, boss: false, victory: false };
 
-        let video;
         let balloons = [];
         let floatingTexts = []; 
         let score = 0;
         let highScore = 0;
         let timeLeft = 60;
         let gameState = 'LOADING'; 
-        let targetColor = null; 
-        let trackedPos = [null, null]; 
+        let trackedPos = [null, null]; // [左手, 右手]
         
         let chargeTimer = 0;
         let isCharging = false;
@@ -112,11 +100,12 @@
         let boss = null;
         let bossBaseY = 0; 
         let bossIsDead = false;
+        let modelIsReady = false;
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
             colorMode(RGB, 255, 255, 255, 255);
-            background(0); // 起動直後は黒背景
+            background(0);
 
             loadResources();
 
@@ -124,39 +113,54 @@
             if(savedScore) highScore = parseInt(savedScore);
             updateScoreLabels();
             
-            // --- カメラ設定（PCテスト・タブレット本番兼用） ---
-            // GitHub Pages上ならインカメラ、それ以外(PC)なら指定なしで起動
-            let videoOptions = {
-                video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
+            // --- カメラ設定（GitHub上ならインカメラ） ---
+            let constraints = {
+                video: {
+                    facingMode: (location.hostname.includes("github.io")) ? "user" : undefined,
+                    width: { ideal: 640 }, // PoseNetは画質低めでOK（処理重視）
+                    height: { ideal: 480 }
+                },
                 audio: false
             };
-            if (location.hostname.includes("github.io")) {
-                videoOptions.video.facingMode = "user";
-            }
-
-            video = createCapture(videoOptions, function() { 
+            video = createCapture(constraints, function() { 
                 console.log("Camera OK"); 
+                // PoseNetの初期化
+                initPoseNet();
             });
-            video.size(CAM_W, CAM_H);
+            video.size(640, 480);
             video.hide();
-            // ------------------------------------------
             
             setupSounds();
             bossBaseY = height * 0.6;
         }
 
+        function initPoseNet() {
+            // PoseNet起動
+            document.getElementById('loading-msg').style.display = 'block';
+            poseNet = ml5.poseNet(video, modelReady);
+            poseNet.on('pose', function(results) {
+                poses = results;
+            });
+        }
+
+        function modelReady() {
+            console.log('Model Loaded');
+            modelIsReady = true;
+            document.getElementById('start-btn').innerText = "あそぶ！";
+            document.getElementById('loading-msg').style.display = 'none';
+        }
+
         function loadResources() {
-            // 読み込みエラーが出ても止まらないように設定
-            imgWater = loadImage('water.png', () => imagesLoaded.water = true, () => console.log('water.png not found'));
-            imgEnemy1 = loadImage('enemy1.png', () => imagesLoaded.enemy1 = true, () => console.log('enemy1.png not found'));
-            imgEnemy2 = loadImage('enemy2.png', () => imagesLoaded.enemy2 = true, () => console.log('enemy2.png not found'));
-            imgBoss = loadImage('boss.png', () => imagesLoaded.boss = true, () => console.log('boss.png not found'));
-            imgBossEnd = loadImage('boss_end.png', () => imagesLoaded.bossEnd = true, () => console.log('boss_end.png not found'));
+            imgWater = loadImage('water.png', () => imagesLoaded.water = true, () => console.log('water error'));
+            imgEnemy1 = loadImage('enemy1.png', () => imagesLoaded.enemy1 = true, () => console.log('enemy1 error'));
+            imgEnemy2 = loadImage('enemy2.png', () => imagesLoaded.enemy2 = true, () => console.log('enemy2 error'));
+            imgBoss = loadImage('boss.png', () => imagesLoaded.boss = true, () => console.log('boss error'));
+            imgBossEnd = loadImage('boss_end.png', () => imagesLoaded.bossEnd = true, () => console.log('boss_end error'));
             
-            bgmNormal = loadSound('normal_bgm.mp3', () => soundLoaded.normal = true, () => console.log('normal_bgm.mp3 not found'));
-            bgmExtra1 = loadSound('extra1_bgm.mp3', () => soundLoaded.extra1 = true, () => console.log('extra1_bgm.mp3 not found'));
-            bgmBoss = loadSound('boss_bgm.mp3', () => soundLoaded.boss = true, () => console.log('boss_bgm.mp3 not found'));
-            bgmVictory = loadSound('victory.mp3', () => soundLoaded.victory = true, () => console.log('victory.mp3 not found'));
+            bgmNormal = loadSound('normal_bgm.mp3', () => soundLoaded.normal = true, () => console.log('bgm error'));
+            bgmExtra1 = loadSound('extra1_bgm.mp3', () => soundLoaded.extra1 = true, () => console.log('bgm error'));
+            bgmBoss = loadSound('boss_bgm.mp3', () => soundLoaded.boss = true, () => console.log('bgm error'));
+            bgmVictory = loadSound('victory.mp3', () => soundLoaded.victory = true, () => console.log('bgm error'));
         }
 
         function setupSounds() {
@@ -183,124 +187,79 @@
 
         function draw() {
             background(0);
-            if (!video || !video.width) {
-                fill(255); textAlign(CENTER); textSize(30); 
-                text("カメラ準備中...", width/2, height/2);
-                return;
+            
+            // ビデオの描画とスケーリング計算
+            if (video && video.width) {
+                // 画面を埋め尽くすようにアスペクト比を維持して拡大（object-fit: cover 相当）
+                let scaleW = width / video.width;
+                let scaleH = height / video.height;
+                vScale = max(scaleW, scaleH);
+                
+                let renderW = video.width * vScale;
+                let renderH = video.height * vScale;
+                videoX = (width - renderW) / 2;
+                videoY = (height - renderH) / 2;
+
+                push();
+                translate(width, 0);
+                scale(-1, 1);
+                // 映像の中心を合わせる
+                image(video, -(videoX + renderW), videoY, renderW, renderH); 
+                pop();
             }
+
             if (gameState === 'LOADING') {
                 gameState = 'TITLE';
                 document.getElementById('title-screen').style.display = 'flex';
             }
 
-            push();
-            translate(width, 0);
-            scale(-1, 1);
-            let scaleFactor = max(width/video.width, height/video.height);
-            let w = video.width * scaleFactor;
-            let h = video.height * scaleFactor;
-            let x = (width - w) / 2;
-            let y = (height - h) / 2;
-            image(video, x, y, w, h);
-            window.vidScale = scaleFactor;
-            window.vidX = x;
-            window.vidY = y;
-            
-            if (gameState === 'CALIBRATION') {
-                rectMode(CENTER);
-                noFill(); stroke(255); strokeWeight(5);
-                rect(width/2, height/2, 150, 150);
-                let cx = (width/2 - x) / scaleFactor;
-                let cy = (height/2 - y) / scaleFactor;
-                let c = getAverageColor(cx, cy, 30);
-                if(c) {
-                    fill(c[0], c[1], c[2]); stroke(255); strokeWeight(2);
-                    rect(width/2, height/2 - 120, 60, 60);
-                }
-            }
-            pop();
-
             if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
-                processVideoRGB(); 
+                updatePoseTracking(); 
                 updateGameLogic();    
                 drawGameObjects();
                 drawGameUI(); 
             } else if (gameState === 'WARNING') {
-                processVideoRGB();
+                updatePoseTracking(); 
                 drawWarning();
-            } else if (gameState === 'CALIBRATION') {
-                processVideoRGB(); 
             } else if (gameState === 'COUNTDOWN') {
-                processVideoRGB();
+                updatePoseTracking(); 
                 drawCountdown();
+            } else if (gameState === 'TITLE') {
+                // タイトル画面でも骨格を表示して動作確認できるようにする
+                updatePoseTracking();
+                drawSkeletonDebug();
             }
         }
 
-        function processVideoRGB() {
-            if (!targetColor) return;
-            video.loadPixels();
-            if (video.pixels.length === 0) return;
-            let matchingPixels = [];
-            for (let y = 0; y < video.height; y += SKIP_STEP) {
-                for (let x = 0; x < video.width; x += SKIP_STEP) {
-                    let i = (y * video.width + x) * 4;
-                    let r = video.pixels[i];
-                    let g = video.pixels[i+1];
-                    let b = video.pixels[i+2];
-                    let isMatch = false;
-                    let d = (r-targetColor[0])**2 + (g-targetColor[1])**2 + (b-targetColor[2])**2;
-                    if (d < COLOR_DIST_SQ) isMatch = true;
-                    if (!isMatch) { 
-                        if (r > WHITE_THRESHOLD && g > WHITE_THRESHOLD && b > WHITE_THRESHOLD) isMatch = true;
-                    }
-                    if (isMatch) {
-                        let screenX = width - (window.vidX + x * window.vidScale);
-                        let screenY = window.vidY + y * window.vidScale;
-                        matchingPixels.push({x: screenX, y: screenY});
-                    }
+        function updatePoseTracking() {
+            trackedPos = [null, null];
+            if (poses.length > 0) {
+                let pose = poses[0].pose;
+                // 手首の信頼度が0.2以上なら検出とみなす
+                if (pose.leftWrist.confidence > 0.2) {
+                    trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
+                }
+                if (pose.rightWrist.confidence > 0.2) {
+                    trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
                 }
             }
-            if (gameState === 'CALIBRATION') {
-                noStroke(); fill(255, 255, 255, 200);
-                for(let p of matchingPixels) circle(p.x, p.y, 4);
-            }
-            if (matchingPixels.length < 10) {
-                trackedPos = [null, null];
-                return;
-            }
-            matchingPixels.sort((a, b) => a.x - b.x);
-            let leftCount = Math.floor(matchingPixels.length * 0.4);
-            let rightStart = Math.floor(matchingPixels.length * 0.6);
-            let sumX=0, sumY=0, count=0;
-            for(let i=0; i<leftCount; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
-            if(count > 10) trackedPos[0] = {x: sumX/count, y: sumY/count}; else trackedPos[0] = null;
-            sumX=0; sumY=0; count=0;
-            for(let i=rightStart; i<matchingPixels.length; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
-            if(count > 10) trackedPos[1] = {x: sumX/count, y: sumY/count}; else trackedPos[1] = null;
+        }
+
+        // カメラ座標(640x480)を画面座標(windowWidth x windowHeight)に変換
+        function transformCoords(x, y) {
+            // 左右反転しているのでX座標を反転
+            let flippedX = video.width - x;
             
-            if(trackedPos[0]) { stroke(0,255,0); strokeWeight(4); noFill(); circle(trackedPos[0].x, trackedPos[0].y, 60); }
-            if(trackedPos[1]) { stroke(0,255,0); strokeWeight(4); noFill(); circle(trackedPos[1].x, trackedPos[1].y, 60); }
+            let screenX = videoX + flippedX * vScale;
+            let screenY = videoY + y * vScale;
+            return { x: screenX, y: screenY };
         }
 
-        function getAverageColor(cx, cy, size) {
-            if (!video || video.pixels.length === 0) return null;
-            let sumR=0, sumG=0, sumB=0, count=0;
-            let half = floor(size/2);
-            for(let dy = -half; dy <= half; dy++) {
-                for(let dx = -half; dx <= half; dx++) {
-                    let x = floor(cx + dx);
-                    let y = floor(cy + dy);
-                    if (x >= 0 && x < video.width && y >= 0 && y < video.height) {
-                        let i = (y * video.width + x) * 4;
-                        sumR += video.pixels[i];
-                        sumG += video.pixels[i+1];
-                        sumB += video.pixels[i+2];
-                        count++;
-                    }
-                }
-            }
-            if (count === 0) return null;
-            return [sumR/count, sumG/count, sumB/count];
+        function drawSkeletonDebug() {
+            // 手の位置に円を表示（デバッグ用）
+            noFill(); stroke(0, 255, 0); strokeWeight(3);
+            if (trackedPos[0]) circle(trackedPos[0].x, trackedPos[0].y, 30);
+            if (trackedPos[1]) circle(trackedPos[1].x, trackedPos[1].y, 30);
         }
 
         function updateGameLogic() {
@@ -336,7 +295,12 @@
             updateBalloons();
             updateFloatingTexts();
             if (gameState === 'EXTRA2') updateBoss();
+            
+            // ゲーム中も手の位置を表示
+            drawSkeletonDebug();
         }
+
+        // --- 以下、ゲームロジックは変更なし ---
 
         function spawnWater() {
             balloons.push({
@@ -603,8 +567,12 @@
         }
 
         function drawGameUI() {
+            // 文字サイズを画面幅に合わせて可変に
+            let textSizeBig = width * 0.05; // 画面幅の5%
+            let textSizeSmall = width * 0.03; // 画面幅の3%
+            
             push();
-            textAlign(LEFT, TOP); textSize(50); textStyle(BOLD);
+            textAlign(LEFT, TOP); textSize(textSizeBig); textStyle(BOLD);
             fill(0); text("SCORE: " + formatScore(score), 32, 32);
             fill(0, 255, 255); text("SCORE: " + formatScore(score), 30, 30);
             
@@ -616,23 +584,29 @@
             fill(0); text(label + t, width-32, 32);
             fill(col); text(label + t, width-30, 30);
 
-            let barW = 500; let barH = 40;
-            let barX = width/2 - barW/2; let barY = height - 60;
-            stroke(0, 0, 100); strokeWeight(4); noFill(); rect(barX, barY, barW, barH);
-            noStroke();
+            // チャージバー
+            document.getElementById('charge-bar-container').style.display = 'block';
+            let barW = document.getElementById('charge-bar-container').offsetWidth;
+            let barH = document.getElementById('charge-bar-container').offsetHeight;
+            let barY = height - 60;
+            
+            // HTML側のバーを更新
             if (needsSeparation) {
-                fill(0, 0, 50); rect(barX, barY, barW, barH);
+                document.getElementById('charge-bar').style.width = '100%';
+                document.getElementById('charge-bar').style.background = '#000055';
                 fill(0, 0, 100); textAlign(CENTER, CENTER); textSize(30);
-                text("てを はなして！", width/2, barY + barH/2);
+                text("てを はなして！", width/2, barY + 15);
             } else if (isCharging) {
-                fill(180, 100, 100); let w = map(chargeTimer, 0, 60, 0, barW);
-                rect(barX, barY, w, barH);
+                let w = map(chargeTimer, 0, 60, 0, 100);
+                document.getElementById('charge-bar').style.width = w + '%';
+                document.getElementById('charge-bar').style.background = 'linear-gradient(90deg, #FFFF00, #FF4500)';
                 fill(0); textAlign(CENTER, CENTER); textSize(30);
-                text("チャージ中！", width/2, barY + barH/2);
+                text("チャージ中！", width/2, barY + 15);
             } else {
-                fill(120, 100, 100, 100); rect(barX, barY, barW, barH);
+                document.getElementById('charge-bar').style.width = '100%';
+                document.getElementById('charge-bar').style.background = 'rgba(100,100,100,0.5)';
                 fill(0, 0, 100); textAlign(CENTER, CENTER); textSize(30);
-                text("ひっさつわざOK", width/2, barY + barH/2);
+                text("ひっさつわざOK", width/2, barY + 15);
             }
             pop();
         }
@@ -648,7 +622,7 @@
         function drawCountdown() {
             if (frameCount % 60 === 0 && countdownVal > 0) countdownVal--;
             fill(0,0,0,100); rect(0,0,width,height);
-            fill(60, 100, 100); textAlign(CENTER, CENTER); textSize(200);
+            fill(60, 100, 100); textAlign(CENTER, CENTER); textSize(min(width, height)*0.4);
             textStyle(BOLD); stroke(0, 100, 100); strokeWeight(20);
             if (countdownVal > 0) text(countdownVal, width/2, height/2);
             else {
@@ -669,28 +643,15 @@
             }
         }
 
-        function startCalibration() {
+        function startGame() {
+            if (!modelIsReady) return;
             ensureAudio();
-            gameState = 'CALIBRATION'; targetColor = null;
             document.getElementById('title-screen').style.display = 'none';
-            document.getElementById('calibration-screen').style.display = 'flex';
+            // キャリブレーション不要！いきなりカウントダウンへ
+            gameState = 'COUNTDOWN'; countdownVal = 3;
+            document.getElementById('charge-bar-container').style.display = 'block';
         }
-        function resetCalibration() { targetColor = null; }
-        function endGame() { 
-            gameState = 'RESULT'; 
-            if(soundLoaded.normal && bgmNormal.isPlaying()) bgmNormal.stop();
-            if(soundLoaded.extra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
-            if(soundLoaded.boss && bgmBoss.isPlaying()) bgmBoss.stop();
-            
-            document.getElementById('final-score').innerText = formatScore(score); 
-            document.getElementById('result-screen').style.display = 'flex'; 
-            document.getElementById('charge-bar-container').style.display = 'none';
-            if(score > highScore) {
-                highScore = score;
-                localStorage.setItem('kamehameha_highscore', highScore);
-                updateScoreLabels();
-            }
-        }
+
         function returnToTitle() { 
             gameState = 'TITLE'; 
             if(soundLoaded.victory && bgmVictory.isPlaying()) bgmVictory.stop();
@@ -698,22 +659,8 @@
             document.getElementById('title-screen').style.display = 'flex'; 
         }
 
-        function mousePressed() {
-            ensureAudio(); 
-            if (gameState === 'CALIBRATION') {
-                let centerX = (width/2 - window.vidX) / window.vidScale;
-                let centerY = (height/2 - window.vidY) / window.vidScale;
-                video.loadPixels();
-                let c = getAverageColor(centerX, centerY, 30);
-                if (c) {
-                    targetColor = c;
-                    document.getElementById('calibration-screen').style.display = 'none';
-                    gameState = 'COUNTDOWN'; countdownVal = 3;
-                    document.getElementById('charge-bar-container').style.display = 'block';
-                }
-            }
-        }
-        function windowResized() { resizeCanvas(windowWidth, windowHeight);
+        function windowResized() { 
+            resizeCanvas(windowWidth, windowHeight);
             bossBaseY = height * 0.6;
         }
     </script>
