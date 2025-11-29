@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Lightweight Fix）</title>
+    <title>かめはめ波（800x600 Final）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; }
         canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
@@ -11,28 +11,28 @@
         
         button { 
             background: linear-gradient(45deg, #FFD700, #FFA500); 
-            border: 3px solid #FFF; padding: 10px 40px; font-size: clamp(16px, 5vw, 24px); font-weight: 900; 
-            color: #333; border-radius: 50px; cursor: pointer; margin: 10px; pointer-events: auto; transition: transform 0.1s; box-shadow: 0 5px 15px rgba(0,0,0,0.5); text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
+            border: 3px solid #FFF; padding: 15px 50px; font-size: clamp(20px, 5vw, 30px); font-weight: 900; 
+            color: #333; border-radius: 50px; cursor: pointer; margin: 15px; pointer-events: auto; transition: transform 0.1s; box-shadow: 0 5px 15px rgba(0,0,0,0.5); text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
         }
         button:active { transform: scale(0.95); }
 
         .screen { 
             display: none; flex-direction: column; align-items: center; justify-content: center;
-            background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 20px; 
-            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 10%; pointer-events: auto;
-            width: 85%; max-width: 500px; box-sizing: border-box;
+            background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 30px; 
+            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 5%; pointer-events: auto;
+            width: 90%; max-width: 600px; box-sizing: border-box;
         }
         
-        h1 { color: #00FF00; font-size: clamp(30px, 8vw, 60px); margin: 0 0 10px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 2px; text-align: center; }
-        p { color: white; font-size: clamp(14px, 4vw, 18px); margin-bottom: 20px; font-weight: bold; text-align: center; line-height: 1.4; }
+        h1 { color: #00FF00; font-size: clamp(40px, 10vw, 80px); margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
+        p { color: white; font-size: clamp(16px, 4vw, 24px); margin-bottom: 30px; font-weight: bold; text-align: center; line-height: 1.5; }
         
-        .score-val { font-size: clamp(40px, 10vw, 80px); color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 20px; }
+        .score-val { font-size: clamp(40px, 10vw, 80px); color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 30px; }
 
-        #charge-bar-container { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
+        #charge-bar-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
         
-        .credit { margin-top: 15px; font-size: 10px; color: #AAA; text-align: center; }
-        #loading-msg { color: #00FF00; font-size: 16px; font-weight: bold; margin-top: 15px; display: none; }
+        .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
+        #loading-msg { color: #00FF00; font-size: 20px; font-weight: bold; margin-top: 20px; display: none; }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
@@ -52,7 +52,7 @@
 
         <div id="result-screen" class="screen">
             <h1>おしまい！</h1>
-            <div style="font-size: 16px; color:#AAA;">今回のスコア</div>
+            <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
             <div class="score-val"><span id="final-score">0</span></div>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-result">0</span></p>
             <button onclick="returnToTitle()">タイトルへ</button>
@@ -61,14 +61,18 @@
     </div>
 
     <script>
-        // ★軽量化設定：解像度を下げることでAndroidでも高速化
-        const CAM_W = 320; 
-        const CAM_H = 240;
+        // ★修正：ご希望通りの800x600に戻しました（精度重視）
+        const CAM_W = 800; 
+        const CAM_H = 600;
         
         let poseNet;
         let poses = [];
         let video;
         
+        let vScale = 1.0; 
+        let videoX = 0; 
+        let videoY = 0;
+
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
         let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
         
@@ -132,18 +136,17 @@
 
         function initPoseNet() {
             document.getElementById('loading-msg').style.display = 'block';
-            // 軽量設定でPoseNetを起動
             let options = {
                 architecture: 'MobileNetV1',
                 imageScaleFactor: 0.3,
                 outputStride: 16,
                 flipHorizontal: true,
-                minConfidence: 0.2,
+                minConfidence: 0.5,
                 maxPoseDetects: 1,
-                scoreThreshold: 0.2,
+                scoreThreshold: 0.5,
                 nmsRadius: 20,
                 detectionType: 'single',
-                multiplier: 0.50
+                multiplier: 0.75
             };
             poseNet = ml5.poseNet(video, options, modelReady);
             poseNet.on('pose', function(results) {
@@ -196,13 +199,20 @@
         function draw() {
             background(0);
             
-            // ★修正：カメラ映像を必ず全画面に描画（黒画面対策）
             if (video && video.width) {
+                let scaleW = width / video.width;
+                let scaleH = height / video.height;
+                vScale = max(scaleW, scaleH);
+                
+                let renderW = video.width * vScale;
+                let renderH = video.height * vScale;
+                videoX = (width - renderW) / 2;
+                videoY = (height - renderH) / 2;
+
                 push();
                 translate(width, 0);
                 scale(-1, 1);
-                // 単純に引き伸ばして表示（バグ回避優先）
-                image(video, 0, 0, width, height); 
+                image(video, -(videoX + renderW), videoY, renderW, renderH); 
                 pop();
             }
 
@@ -233,14 +243,17 @@
             trackedPos = [null, null];
             if (poses.length > 0) {
                 let pose = poses[0].pose;
-                if (pose.leftWrist.confidence > 0.2) trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
-                if (pose.rightWrist.confidence > 0.2) trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
+                if (pose.leftWrist.confidence > 0.2) {
+                    trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
+                }
+                if (pose.rightWrist.confidence > 0.2) {
+                    trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
+                }
             }
         }
 
         function transformCoords(x, y) {
-            // カメラ座標(320x240)を画面サイズにマップ
-            let screenX = map(x, 0, video.width, width, 0); // 左右反転
+            let screenX = map(x, 0, video.width, width, 0); 
             let screenY = map(y, 0, video.height, 0, height);
             return { x: screenX, y: screenY };
         }
@@ -289,9 +302,9 @@
         function spawnWater() {
             balloons.push({
                 type: 'WATER',
-                x: random(50, width-50),
+                x: random(100, width-100),
                 y: height + 50,
-                r: min(width, height) * 0.1, // 画面サイズに合わせる
+                r: min(width, height) * 0.1, 
                 speed: 4,
                 c: color(0, 100, 255)
             });
@@ -301,6 +314,7 @@
             gameState = 'EXTRA1';
             balloons = [];
             extraTimer = 15;
+            score += 0; 
             if (soundLoaded.extra1 && bgmExtra1.isLoaded()) {
                 bgmExtra1.setVolume(0.5);
                 bgmExtra1.loop();
@@ -332,7 +346,7 @@
                 let hit = false;
                 if (!isFiring) {
                     for (let p of trackedPos) {
-                        if (p && dist(p.x, p.y, b.x, b.y) < b.r + 80) hit = true; // 手の当たり判定拡大
+                        if (p && dist(p.x, p.y, b.x, b.y) < b.r + 80) hit = true; 
                     }
                 }
                 if (hit) { popBalloon(i); } 
@@ -428,6 +442,8 @@
                 if (ft.val === "310億") {
                     textSize(min(width,height)*0.2); fill(255, 215, 0); stroke(255, 0, 0); strokeWeight(10);
                     drawingContext.shadowBlur = 30; drawingContext.shadowColor = "white";
+                } else if (ft.val === "あと1回！") {
+                    textSize(min(width,height)*0.15); fill(255, 50, 50); stroke(255); strokeWeight(5);
                 } else {
                     textSize(min(width,height)*0.1); fill(255, 255, 0); stroke(0); strokeWeight(3);
                 }
@@ -442,7 +458,8 @@
                 image(img, 0, 0, size, size); 
             } else {
                 fill(altColor); stroke(255); strokeWeight(3);
-                rectMode(CENTER); rect(0,0, size*0.8, size*0.8);
+                if(label === "佐渡ヶ島(Boss)" || label === "撃破！") rect(0,0, size*0.8, size*0.8);
+                else circle(0, 0, size * 0.8);
                 fill(255); noStroke(); textAlign(CENTER, CENTER); textSize(14);
                 text(label, 0, 0);
             }
@@ -478,9 +495,7 @@
                 if (fireTimer <= 0) {
                     isFiring = false; noiseOsc.amp(0, 0.5);
                     needsSeparation = true;
-                    // ★必殺技の当たり判定強化（ラグ対策）
                     if (gameState !== 'EXTRA2') { 
-                        // 画面内の敵をほぼ全て巻き込む
                         for (let i = balloons.length - 1; i >= 0; i--) {
                             popBalloon(i); 
                         }
@@ -600,7 +615,7 @@
 
         function returnToTitle() { 
             gameState = 'TITLE'; 
-            // BGM停止
+            // 全BGM停止
             if(soundLoaded.normal && bgmNormal.isPlaying()) bgmNormal.stop();
             if(soundLoaded.extra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
             if(soundLoaded.boss && bgmBoss.isPlaying()) bgmBoss.stop();
