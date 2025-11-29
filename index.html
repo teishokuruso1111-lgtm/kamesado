@@ -3,39 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Visual Debug）</title>
+    <title>かめはめ波（Auto Start）</title>
     <style>
-        /* 背景を真っ黒ではなく、濃いグレーにする（動作確認用） */
-        body { margin: 0; padding: 0; background: #333; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
+        body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
         
+        /* エラーログ（もしもの時用） */
+        #debug-log {
+            position: absolute; top: 0; left: 0; width: 100%; 
+            background: rgba(0,0,0,0.5); color: #00FF00; 
+            font-size: 12px; z-index: 20000; pointer-events: none;
+            white-space: pre-wrap; padding: 5px; border-bottom: 1px solid #444;
+            display: none;
+        }
+
         canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 10; }
+        
+        /* UIレイヤーを最前面に */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 10000; }
         
         button { 
             background: linear-gradient(45deg, #FFD700, #FFA500); 
             border: 3px solid #FFF; padding: 15px 50px; font-size: clamp(20px, 5vw, 30px); font-weight: 900; 
             color: #333; border-radius: 50px; cursor: pointer; margin: 15px; pointer-events: auto; 
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5); pointer-events: auto;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
         }
         button:active { transform: scale(0.95); }
 
         .screen { 
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 30px; 
-            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 10%; 
-            width: 90%; max-width: 600px; box-sizing: border-box; pointer-events: auto;
+            border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 10%; pointer-events: auto;
+            width: 90%; max-width: 600px; box-sizing: border-box;
         }
         .hidden { display: none !important; }
         
         h1 { color: #00FF00; font-size: clamp(40px, 10vw, 80px); margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
+        p { color: white; font-size: clamp(16px, 4vw, 24px); margin-bottom: 30px; font-weight: bold; text-align: center; line-height: 1.5; }
         .score-val { font-size: clamp(40px, 10vw, 80px); color: #00FFFF; font-weight: 900; text-shadow: 0 0 20px #00FFFF; margin-bottom: 30px; }
-        
-        /* 画面左上のデバッグ表示 */
-        #status-display {
-            position: absolute; top: 0; left: 0; padding: 10px;
-            background: rgba(0,0,0,0.5); font-size: 14px; color: lime;
-            text-align: left; z-index: 20; pointer-events: none;
-        }
+        #charge-bar-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
+        #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
+        .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
+        #loading-msg { color: #00FF00; font-size: 18px; font-weight: bold; margin-top: 20px; text-align: center; }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
@@ -43,151 +51,152 @@
     <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
 </head>
 <body>
-    <div id="status-display">System Init...</div>
-
+    <div id="debug-log"></div>
+    
     <div id="ui-layer">
         <div id="title-screen" class="screen">
             <h1>かめはめ波</h1>
-            <p>〜 最終デバッグ版 〜</p>
-            <p>High Score: <span id="high-score-title">0</span></p>
+            <p>〜 AI モーションキャプチャ版 〜</p>
+            <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             
             <button id="init-btn">カメラ起動</button>
-            <button id="start-btn" class="hidden">あそぶ！</button>
-            
-            <div id="loading-msg" class="hidden">準備中...</div>
+            <div id="loading-msg" class="hidden">AI準備中...<br>完了すると自動で始まります</div>
+            <div class="credit">音楽素材：魔王魂 / AR Spark</div>
         </div>
 
         <div id="result-screen" class="screen hidden">
             <h1>おしまい！</h1>
+            <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
             <div class="score-val"><span id="final-score">0</span></div>
+            <p style="color:#FFFF00">ハイスコア: <span id="high-score-result">0</span></p>
             <button id="return-btn">タイトルへ</button>
         </div>
+        <div id="charge-bar-container"><div id="charge-bar"></div></div>
     </div>
 
     <script>
-        // デバッグ表示更新関数
-        function updateStatus(msg) {
-            let el = document.getElementById('status-display');
-            if(el) el.innerHTML = msg;
-            console.log(msg);
-        }
-
-        // 変数定義
-        let video;
+        const CAM_W = 640; 
+        const CAM_H = 480;
+        
         let poseNet;
         let poses = [];
-        let trackedPos = [null, null];
+        let video;
+        let vScale = 1.0; 
+        let videoX = 0, videoY = 0;
 
-        // 画像・音楽
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
-        let bgmNormal, bgmExtra1, bgmBoss, bgmVictory;
+        let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
         
-        // ゲーム状態
         let balloons = [];
+        let floatingTexts = []; 
         let score = 0;
         let highScore = 0;
-        let gameState = 'INIT';
-        let chargeTimer = 0, isCharging = false, isFiring = false, fireTimer = 0;
-        let extraTimer = 0, boss = null, bossIsDead = false;
-        let needsSeparation = false;
+        let timeLeft = 60;
+        let gameState = 'INIT'; 
+        let trackedPos = [null, null]; 
         
-        // 音（オシレーター）
+        let chargeTimer = 0;
+        let isCharging = false;
+        let isFiring = false;
+        let fireTimer = 0;
+        let cooldownTimer = 0;
+        let needsSeparation = false; 
         let osc, noiseOsc;
 
-        // ★★★ 起動処理 ★★★
+        let hasCollectedWater = false;
+        let waterSpawned = false;
+        let warningTextX = 0;
+        let extraTimer = 0;
+        let boss = null;
+        let bossBaseY = 0; 
+        let bossIsDead = false;
+        let modelIsReady = false;
+
+        // ★ボタンイベント
         window.onload = function() {
-            updateStatus("Window Loaded. Waiting for button...");
-            document.getElementById('init-btn').onclick = startSystem;
-            document.getElementById('start-btn').onclick = gameStart;
-            document.getElementById('return-btn').onclick = returnTitle;
+            document.getElementById('init-btn').onclick = startCameraSequence;
+            document.getElementById('return-btn').onclick = returnToTitleSystem;
         };
 
-        function startSystem() {
+        function startCameraSequence() {
             document.getElementById('init-btn').classList.add('hidden');
             document.getElementById('loading-msg').classList.remove('hidden');
-            updateStatus("Starting Camera...");
+            document.getElementById('loading-msg').innerText = "カメラ許可を求めています...";
 
-            // オーディオ起動
             if (typeof userStartAudio !== 'undefined') userStartAudio();
 
-            // カメラ設定 (シンプルに)
             let constraints = {
-                video: {
-                    facingMode: (location.hostname.includes("github.io")) ? "user" : undefined,
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
-                },
+                video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
                 audio: false
             };
-
-            video = createCapture(constraints, function(stream) {
-                updateStatus("Camera OK. Loading AI...");
-                initPoseNet();
-            });
-            video.hide(); // キャンバスに描くので隠す
-            
-            // iPad対策
-            if(video.elt) {
-                video.elt.setAttribute('playsinline', '');
-                video.elt.setAttribute('autoplay', '');
+            if (location.hostname.includes("github.io")) {
+                constraints.video.facingMode = "user";
             }
 
+            video = createCapture(constraints, function(stream) { 
+                document.getElementById('loading-msg').innerText = "AIモデル読み込み中...";
+                initPoseNet();
+            });
+            
+            if(video) {
+                video.size(CAM_W, CAM_H);
+                video.hide();
+                if(video.elt) video.elt.setAttribute('playsinline', '');
+            }
+            
             setupSounds();
         }
 
         function initPoseNet() {
-            // PoseNet設定
             let options = {
-                architecture: 'MobileNetV1',
-                imageScaleFactor: 0.3,
-                outputStride: 16,
-                flipHorizontal: true,
-                minConfidence: 0.3,
-                detectionType: 'single'
+                architecture: 'MobileNetV1', imageScaleFactor: 0.3, outputStride: 16,
+                flipHorizontal: true, minConfidence: 0.5, scoreThreshold: 0.5,
+                detectionType: 'single', multiplier: 0.75
             };
-            
             try {
-                poseNet = ml5.poseNet(video, options, () => {
-                    updateStatus("AI Ready! Click Start.");
-                    document.getElementById('loading-msg').classList.add('hidden');
-                    document.getElementById('start-btn').classList.remove('hidden');
-                });
-                poseNet.on('pose', (results) => { poses = results; });
-            } catch(e) {
-                updateStatus("AI Error: " + e);
-            }
+                poseNet = ml5.poseNet(video, options, modelReady);
+                poseNet.on('pose', function(results) { poses = results; });
+            } catch(e) { console.log(e); }
         }
 
-        function gameStart() {
-            gameState = 'PLAY';
-            score = 0;
-            balloons = [];
-            
+        function modelReady() {
+            modelIsReady = true;
+            document.getElementById('loading-msg').innerText = "準備完了！スタートします！";
+            // ★自動スタート（1秒後）
+            setTimeout(startGameSystem, 1000);
+        }
+
+        function startGameSystem() {
             document.getElementById('title-screen').classList.add('hidden');
             document.getElementById('result-screen').classList.add('hidden');
-            
-            // BGM再生
-            if(bgmNormal && bgmNormal.isLoaded()) {
-                bgmNormal.setVolume(0.5);
-                bgmNormal.loop();
-            }
+            gameState = 'COUNTDOWN'; countdownVal = 3;
+            document.getElementById('charge-bar-container').style.display = 'block';
         }
 
-        function returnTitle() {
-            gameState = 'TITLE';
+        function returnToTitleSystem() { 
+            gameState = 'TITLE'; 
             stopAllSounds();
             document.getElementById('result-screen').classList.add('hidden');
             document.getElementById('title-screen').classList.remove('hidden');
-            document.getElementById('init-btn').classList.add('hidden'); // カメラは起動済みなので
-            document.getElementById('start-btn').classList.remove('hidden'); // スタートボタンを表示
+            document.getElementById('title-screen').style.display = 'flex'; 
+            document.getElementById('charge-bar-container').style.display = 'none';
+            document.getElementById('init-btn').classList.remove('hidden');
+            document.getElementById('loading-msg').classList.add('hidden');
         }
 
-        // ★★★ P5.js Main ★★★
-
+        // --- P5.js ---
         function setup() {
             createCanvas(windowWidth, windowHeight);
-            
-            // リソース読み込み (エラーでも止まらない)
+            colorMode(RGB, 255, 255, 255, 255);
+            background(0);
+            loadResources();
+            let savedScore = localStorage.getItem('kamehameha_highscore');
+            if(savedScore) highScore = parseInt(savedScore);
+            updateScoreLabels();
+            bossBaseY = height * 0.6;
+        }
+
+        function loadResources() {
             imgWater = loadImage('water.png');
             imgEnemy1 = loadImage('enemy1.png');
             imgEnemy2 = loadImage('enemy2.png');
@@ -198,10 +207,6 @@
             bgmExtra1 = loadSound('extra1_bgm.mp3');
             bgmBoss = loadSound('boss_bgm.mp3');
             bgmVictory = loadSound('victory.mp3');
-
-            let savedScore = localStorage.getItem('kamehameha_highscore');
-            if(savedScore) highScore = parseInt(savedScore);
-            document.getElementById('high-score-title').innerText = highScore;
         }
 
         function setupSounds() {
@@ -210,177 +215,85 @@
         }
 
         function stopAllSounds() {
-            if(bgmNormal) bgmNormal.stop();
-            if(bgmExtra1) bgmExtra1.stop();
-            if(bgmBoss) bgmBoss.stop();
-            if(bgmVictory) bgmVictory.stop();
+            if(bgmNormal && bgmNormal.isPlaying()) bgmNormal.stop();
+            if(bgmExtra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
+            if(bgmBoss && bgmBoss.isPlaying()) bgmBoss.stop();
+            if(bgmVictory && bgmVictory.isPlaying()) bgmVictory.stop();
         }
+
+        function updateScoreLabels() {
+            let elT = document.getElementById('high-score-title');
+            let elR = document.getElementById('high-score-result');
+            if(elT) elT.innerText = formatScore(highScore);
+            if(elR) elR.innerText = formatScore(highScore);
+        }
+
+        function formatScore(n) { return n.toLocaleString(); }
 
         function draw() {
-            // 背景をグレーにする（黒だと何も見えないリスクがあるため）
-            background(50); 
-
-            // 1. カメラ描画
-            if (video && video.width > 0) {
-                // アスペクト比を維持して画面いっぱいに表示
-                let scale = max(width / video.width, height / video.height);
-                let w = video.width * scale;
-                let h = video.height * scale;
-                let x = (width - w) / 2;
-                let y = (height - h) / 2;
+            background(0);
+            
+            // カメラ描画
+            if (video && video.width) {
+                let scaleW = width / video.width;
+                let scaleH = height / video.height;
+                vScale = max(scaleW, scaleH);
+                let renderW = video.width * vScale;
+                let renderH = video.height * vScale;
+                videoX = (width - renderW) / 2;
+                videoY = (height - renderH) / 2;
 
                 push();
-                translate(width, 0); // 左右反転
+                translate(width, 0);
                 scale(-1, 1);
-                image(video, -(x + w), y, w, h); 
+                image(video, -(videoX + renderW), videoY, renderW, renderH); 
                 pop();
-            } else {
-                // カメラがない時
-                fill(100); textAlign(CENTER); textSize(20);
-                text("No Camera Signal", width/2, height/2);
-            }
-
-            // 2. 手の位置検出
-            trackedPos = [null, null];
-            if (poses.length > 0) {
-                let p = poses[0].pose;
-                // 手首の位置を取得 (信頼度0.2以上)
-                if (p.leftWrist.confidence > 0.2) trackedPos[0] = transform(p.leftWrist.x, p.leftWrist.y);
-                if (p.rightWrist.confidence > 0.2) trackedPos[1] = transform(p.rightWrist.x, p.rightWrist.y);
-            }
-            
-            // マウスでのデバッグ操作（PC用）
-            if (mouseIsPressed) {
-                trackedPos[0] = {x: mouseX - 50, y: mouseY};
-                trackedPos[1] = {x: mouseX + 50, y: mouseY};
-            }
-
-            // 手の描画（デバッグ用：緑と赤の丸）
-            noFill(); strokeWeight(5);
-            if (trackedPos[0]) { stroke(0,255,0); circle(trackedPos[0].x, trackedPos[0].y, 60); }
-            if (trackedPos[1]) { stroke(255,0,0); circle(trackedPos[1].x, trackedPos[1].y, 60); }
-
-            // 3. ゲームループ
-            if (gameState === 'PLAY') {
-                updateGame();
-                drawGame();
-            }
-            
-            // 左上ステータス更新
-            let status = "State: " + gameState + " | Score: " + score;
-            if(trackedPos[0]) status += " | L-Hand OK";
-            if(trackedPos[1]) status += " | R-Hand OK";
-            updateStatus(status);
-        }
-
-        // カメラ座標を画面座標に変換
-        function transform(x, y) {
-            if (!video || video.width === 0) return {x:0, y:0};
-            let scale = max(width / video.width, height / video.height);
-            let w = video.width * scale;
-            let h = video.height * scale;
-            let videoX = (width - w) / 2;
-            let videoY = (height - h) / 2;
-            
-            // 左右反転を考慮
-            let screenX = videoX + (video.width - x) * scale;
-            let screenY = videoY + y * scale;
-            return { x: screenX, y: screenY };
-        }
-
-        function updateGame() {
-            // 敵の出現
-            if (frameCount % 60 === 0) {
-                balloons.push({
-                    x: random(50, width-50),
-                    y: height + 50,
-                    r: 40,
-                    speed: 3,
-                    type: 'NORMAL'
-                });
-            }
-
-            // かめはめ波チャージ判定
-            if (trackedPos[0] && trackedPos[1]) {
-                let d = dist(trackedPos[0].x, trackedPos[0].y, trackedPos[1].x, trackedPos[1].y);
-                if (d < 150) {
-                    isCharging = true;
-                    chargeTimer += 2;
-                    if (chargeTimer > 100) {
-                        isFiring = true;
-                        chargeTimer = 0;
-                        fireTimer = 20;
-                    }
-                } else {
-                    isCharging = false;
-                    chargeTimer = 0;
-                }
-            }
-
-            // 発射処理
-            if (isFiring) {
-                fireTimer--;
-                if (fireTimer <= 0) isFiring = false;
-            }
-
-            // 敵の移動と当たり判定
-            for (let i = balloons.length - 1; i >= 0; i--) {
-                let b = balloons[i];
-                b.y -= b.speed;
                 
-                let hit = false;
-                // 手でタッチ
-                if (trackedPos[0] && dist(trackedPos[0].x, trackedPos[0].y, b.x, b.y) < b.r + 30) hit = true;
-                if (trackedPos[1] && dist(trackedPos[1].x, trackedPos[1].y, b.x, b.y) < b.r + 30) hit = true;
-                // かめはめ波
-                if (isFiring) hit = true;
-
-                if (hit) {
-                    score += 10;
-                    balloons.splice(i, 1);
-                    // 音を鳴らす
-                    if(osc) { osc.freq(500); osc.amp(0.5, 0.1); setTimeout(()=>osc.amp(0, 0.1), 100); }
-                } else if (b.y < -50) {
-                    balloons.splice(i, 1);
-                }
-            }
-        }
-
-        function drawGame() {
-            // 敵
-            for (let b of balloons) {
-                // 画像があれば表示、なければ丸
-                if (imgEnemy1 && imgEnemy1.width > 0) {
-                    imageMode(CENTER);
-                    image(imgEnemy1, b.x, b.y, b.r*2, b.r*2);
-                } else {
-                    fill(255, 0, 255); noStroke();
-                    circle(b.x, b.y, b.r*2);
-                }
-            }
-
-            // チャージエフェクト
-            if (isCharging) {
-                let cx = (trackedPos[0].x + trackedPos[1].x) / 2;
-                let cy = (trackedPos[0].y + trackedPos[1].y) / 2;
-                noFill(); stroke(255, 255, 0); strokeWeight(5);
-                circle(cx, cy, chargeTimer * 2);
-            }
-
-            // かめはめ波ビーム
-            if (isFiring) {
-                fill(255, 255, 0, 150); noStroke();
+                // 画面を少し暗くしてUIを見やすくする
+                fill(0, 100); 
+                noStroke();
                 rect(0, 0, width, height);
             }
 
-            // UI
-            fill(255); noStroke(); textSize(30); textAlign(LEFT, TOP);
-            text("SCORE: " + score, 20, 20);
+            if (gameState === 'INIT' || gameState === 'LOADING' || gameState === 'TITLE') {
+                updatePoseTracking();
+                drawSkeletonDebug();
+            } else if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
+                updatePoseTracking(); 
+                updateGameLogic();    
+                drawGameObjects();
+                drawGameUI(); 
+                drawSkeletonDebug();
+            } else if (gameState === 'WARNING') {
+                updatePoseTracking(); 
+                drawWarning();
+            } else if (gameState === 'COUNTDOWN') {
+                updatePoseTracking(); 
+                drawCountdown();
+            }
         }
 
-        function windowResized() {
-            resizeCanvas(windowWidth, windowHeight);
+        function updatePoseTracking() {
+            trackedPos = [null, null];
+            if (poses.length > 0) {
+                let pose = poses[0].pose;
+                if (pose.leftWrist.confidence > 0.1) trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
+                if (pose.rightWrist.confidence > 0.1) trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
+            } else {
+                if(mouseIsPressed) { // PCテスト用
+                    trackedPos[0] = {x:mouseX-50, y:mouseY};
+                    trackedPos[1] = {x:mouseX+50, y:mouseY};
+                }
+            }
         }
-    </script>
-</body>
-</html>
+
+        function transformCoords(x, y) {
+            let screenX = map(x, 0, video.width, width, 0); 
+            let screenY = map(y, 0, video.height, 0, height);
+            return { x: screenX, y: screenY };
+        }
+
+        function drawSkeletonDebug() {
+            noFill(); strokeWeight(5);
+            // 手の位置にマーカー表示
+            if (trackedPos[0]) { stroke(0
