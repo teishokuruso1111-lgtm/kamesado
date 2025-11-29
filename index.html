@@ -3,14 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Final Polish）</title>
+    <title>かめはめ波（Rescue Ver）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; color: white; }
         
+        /* ログ表示（原因特定用） */
+        #debug-log {
+            position: absolute; top: 0; left: 0; width: 100%; 
+            background: rgba(0,0,0,0.5); color: #00FF00; 
+            font-size: 12px; z-index: 20000; pointer-events: none;
+            white-space: pre-wrap; padding: 5px; border-bottom: 1px solid #444;
+        }
+
         canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 10; }
         
-        /* 共通ボタンデザイン */
         button { 
             background: linear-gradient(45deg, #FFD700, #FFA500); 
             border: 3px solid #FFF; padding: 15px 50px; font-size: clamp(20px, 5vw, 30px); font-weight: 900; 
@@ -18,17 +25,16 @@
             box-shadow: 0 5px 15px rgba(0,0,0,0.5); text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
         }
         button:active { transform: scale(0.95); }
-        
-        /* 画面コンテナ（共通設定） */
+
         .screen-panel { 
-            display: none; /* 基本は非表示 */
+            display: none; /* 初期状態はJSで制御 */
             flex-direction: column; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 30px; 
             border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 5%; pointer-events: auto;
             width: 90%; max-width: 600px; box-sizing: border-box;
         }
         
-        /* キャリブレーション画面は枠線なし（カメラが見えるように） */
+        /* キャリブレーション画面 */
         #calibration-screen {
             background: none; border: none; box-shadow: none;
             width: 100%; height: 100%; justify-content: space-between;
@@ -48,53 +54,65 @@
         #charge-bar-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 600px; height: 30px; background: rgba(255, 255, 255, 0.2); border-radius: 15px; overflow: hidden; display: none; border: 3px solid white; }
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
         .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
-
-        /* 左上の状態表示 */
-        #debug-status { position: absolute; top: 0; left: 0; color: lime; font-size: 10px; background: rgba(0,0,0,0.5); padding: 2px; }
     </style>
+
+    <script>
+        function log(msg) {
+            console.log(msg);
+            var el = document.getElementById('debug-log');
+            if(el) el.innerHTML += msg + " | ";
+        }
+        window.onerror = function(msg, url, line) {
+            log("Err: " + msg);
+        };
+    </script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/addons/p5.sound.min.js"></script>
 </head>
 <body>
-    <div id="debug-status">Loading...</div>
+    <div id="debug-log">Init...<br></div>
 
     <div id="ui-layer">
         <div id="title-screen" class="screen-panel" style="display: flex;">
             <h1>かめはめ波</h1>
             <p>〜 佐渡ヶ島 決戦版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
-            <button onclick="startCalibration()">あそぶ！</button>
+            
+            <button id="btn-start">あそぶ！</button>
+            
             <div class="credit">音楽素材：魔王魂 / AR Spark</div>
         </div>
 
-        <div id="calibration-screen" class="screen-panel">
+        <div id="calibration-screen" class="screen-panel" style="display: none;">
             <div class="calib-text">白い枠の中に<br>リストバンドを入れて<br>画面をタップ！</div>
             <div style="pointer-events: auto; margin-bottom: 50px;">
-                <button onclick="returnToTitle()" class="secondary" style="font-size:18px; padding:10px 30px;">タイトルへ戻る</button>
+                <button id="btn-reset" class="secondary" style="font-size:18px; padding:10px 30px;">タイトルへ戻る</button>
             </div>
         </div>
 
-        <div id="result-screen" class="screen-panel">
+        <div id="result-screen" class="screen-panel" style="display: none;">
             <h1 id="result-title">おしまい！</h1>
             <div style="font-size: 20px; color:#AAA;">今回のスコア</div>
             <div class="score-val"><span id="final-score">0</span></div>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-result">0</span></p>
-            <button onclick="returnToTitle()">タイトルへ</button>
+            <button id="btn-return">タイトルへ</button>
         </div>
         
         <div id="charge-bar-container"><div id="charge-bar"></div></div>
     </div>
 
     <script>
+        log("Script Start");
+
         // --- 設定 ---
         const CAM_W = 640;
         const CAM_H = 480;
         const SKIP_STEP = 4; 
         
         const HUE_THRESH = 20; 
-        const SAT_THRESH = 40; // 少し厳しくして誤検知防止
-        const VAL_THRESH = 40; 
+        const SAT_THRESH = 30; 
+        const VAL_THRESH = 30; 
         
         const IMG_RATIO = 369 / 676; 
 
@@ -105,7 +123,6 @@
         
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
         let bgmNormal, bgmExtra1, bgmBoss, bgmVictory;
-        let soundLoaded = { normal: false, extra: false, boss: false, win: false };
         
         let balloons = [];
         let floatingTexts = []; 
@@ -129,209 +146,23 @@
         let boss = null;
         let bossIsDead = false;
 
-        // --- 画面切り替え管理 ---
-        function showScreen(screenId) {
-            // 全画面を非表示にする
+        // ★ボタンイベント設定（HTML読み込み後に確実に実行）
+        window.onload = function() {
+            log("Window Loaded");
+            document.getElementById('btn-start').onclick = function() {
+                log("Start Clicked");
+                // オーディオコンテキストの開始
+                if (getAudioContext().state !== 'running') {
+                    userStartAudio().then(() => log("Audio Started"));
+                }
+                startCalibration();
+            };
+            document.getElementById('btn-reset').onclick = returnToTitle;
+            document.getElementById('btn-return').onclick = returnToTitle;
+        };
+
+        // --- 画面切り替えヘルパー ---
+        function showScreen(id) {
             document.getElementById('title-screen').style.display = 'none';
             document.getElementById('calibration-screen').style.display = 'none';
-            document.getElementById('result-screen').style.display = 'none';
-            document.getElementById('charge-bar-container').style.display = 'none';
-            
-            // 指定された画面だけ表示
-            if (screenId) {
-                let el = document.getElementById(screenId);
-                if(el) el.style.display = 'flex';
-            }
-        }
-
-        function preload() {
-            imgWater = loadImage('water.png');
-            imgEnemy1 = loadImage('enemy1.png');
-            imgEnemy2 = loadImage('enemy2.png');
-            imgBoss = loadImage('boss.png');
-            imgBossEnd = loadImage('boss_end.png');
-            
-            bgmNormal = loadSound('normal_bgm.mp3', () => soundLoaded.normal = true);
-            bgmExtra1 = loadSound('extra1_bgm.mp3', () => soundLoaded.extra = true);
-            bgmBoss = loadSound('boss_bgm.mp3', () => soundLoaded.boss = true);
-            bgmVictory = loadSound('victory.mp3', () => soundLoaded.win = true);
-        }
-
-        function setup() {
-            createCanvas(windowWidth, windowHeight);
-            colorMode(RGB, 255, 255, 255, 255);
-            background(0);
-
-            let savedScore = localStorage.getItem('kamehameha_highscore');
-            if(savedScore) highScore = parseInt(savedScore);
-            updateScoreLabels();
-            
-            // カメラ設定
-            let constraints = {
-                video: { width: {ideal: CAM_W}, height: {ideal: CAM_H} },
-                audio: false
-            };
-            if (location.hostname.includes("github.io")) {
-                constraints.video.facingMode = "user";
-            }
-
-            video = createCapture(constraints, function() { 
-                console.log("Camera OK"); 
-                document.getElementById('debug-status').innerText = "Cam OK";
-            });
-            video.size(CAM_W, CAM_H);
-            video.hide();
-            
-            if(video.elt) {
-                video.elt.setAttribute('playsinline', '');
-                video.elt.setAttribute('autoplay', '');
-            }
-            
-            setupSounds();
-        }
-
-        function setupSounds() {
-            osc = new p5.Oscillator('sine'); osc.amp(0); osc.start();
-            noiseOsc = new p5.Noise('brown'); noiseOsc.amp(0); noiseOsc.start();
-        }
-
-        function ensureAudio() {
-            if (getAudioContext().state !== 'running') {
-                getAudioContext().resume();
-            }
-        }
-
-        function updateScoreLabels() {
-            let t = document.getElementById('high-score-title');
-            let r = document.getElementById('high-score-result');
-            if(t) t.innerText = formatScore(highScore);
-            if(r) r.innerText = formatScore(highScore);
-        }
-
-        function formatScore(n) { return n.toLocaleString(); }
-
-        function draw() {
-            background(0);
-            
-            // 1. カメラ描画
-            if (video && video.width) {
-                let scaleW = width / video.width;
-                let scaleH = height / video.height;
-                let vScale = max(scaleW, scaleH);
-                let w = video.width * vScale;
-                let h = video.height * vScale;
-                let x = (width - w) / 2;
-                let y = (height - h) / 2;
-                
-                push();
-                translate(width, 0);
-                scale(-1, 1);
-                tint(255); 
-                image(video, -(x + w), y, w, h);
-                pop();
-                
-                window.vidScale = vScale;
-                window.vidX = x;
-                window.vidY = y;
-            }
-
-            if (gameState === 'CALIBRATION') {
-                drawCalibrationGuide();
-                processVideoHSV();
-            } else if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
-                processVideoHSV(); 
-                updateGameLogic();    
-                drawGameObjects();
-                drawGameUI(); 
-            } else if (gameState === 'WARNING') {
-                processVideoHSV();
-                drawWarning();
-            } else if (gameState === 'COUNTDOWN') {
-                processVideoHSV();
-                drawCountdown();
-            }
-        }
-
-        function rgbToHsv(r, g, b) {
-            r /= 255, g /= 255, b /= 255;
-            let max = Math.max(r, g, b), min = Math.min(r, g, b);
-            let h, s, v = max;
-            let d = max - min;
-            s = max == 0 ? 0 : d / max;
-            if (max == min) h = 0; 
-            else {
-                switch (max) {
-                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-                    case g: h = (b - r) / d + 2; break;
-                    case b: h = (r - g) / d + 4; break;
-                }
-                h /= 6;
-            }
-            return [h * 360, s * 100, v * 100];
-        }
-
-        function processVideoHSV() {
-            if (!targetHSV || !video || video.width === 0) return;
-            video.loadPixels();
-            if (video.pixels.length === 0) return;
-            
-            let matchingPixels = [];
-            for (let y = 0; y < video.height; y += SKIP_STEP) {
-                for (let x = 0; x < video.width; x += SKIP_STEP) {
-                    // ★修正：画面の端っこ（ノイズ地帯）を無視
-                    if (x < 10 || y < 10 || x > video.width - 10 || y > video.height - 10) continue;
-
-                    let i = (y * video.width + x) * 4;
-                    let r = video.pixels[i];
-                    let g = video.pixels[i+1];
-                    let b = video.pixels[i+2];
-                    
-                    let hsv = rgbToHsv(r, g, b);
-                    let h = hsv[0]; let s = hsv[1]; let v = hsv[2];
-
-                    if (s < SAT_THRESH || v < VAL_THRESH) continue;
-                    let diff = Math.abs(h - targetHSV[0]);
-                    if (diff > 180) diff = 360 - diff;
-
-                    if (diff < HUE_THRESH) {
-                        let screenX = width - (window.vidX + x * window.vidScale); 
-                        let screenY = window.vidY + y * window.vidScale;
-                        matchingPixels.push({x: screenX, y: screenY});
-                    }
-                }
-            }
-
-            if (matchingPixels.length < 20) { // 閾値を少し上げる
-                // 見つからない場合は更新しない（前の位置を維持）
-                return;
-            }
-            
-            matchingPixels.sort((a, b) => a.x - b.x);
-            let mid = Math.floor(matchingPixels.length / 2);
-            
-            let sumX=0, sumY=0, count=0;
-            for(let i=0; i<mid; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
-            if(count > 10) trackedPos[0] = {x: sumX/count, y: sumY/count};
-            
-            sumX=0; sumY=0; count=0;
-            for(let i=mid; i<matchingPixels.length; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
-            if(count > 10) trackedPos[1] = {x: sumX/count, y: sumY/count};
-            
-            noFill(); stroke(0, 255, 0); strokeWeight(4);
-            if(trackedPos[0]) circle(trackedPos[0].x, trackedPos[0].y, 50);
-            if(trackedPos[1]) circle(trackedPos[1].x, trackedPos[1].y, 50);
-        }
-
-        function getTargetHSV() {
-            if (!video || video.pixels.length === 0) return null;
-            let sumR=0, sumG=0, sumB=0, count=0;
-            let cx = video.width / 2;
-            let cy = video.height / 2;
-            for(let dy = -10; dy <= 10; dy++) {
-                for(let dx = -10; dx <= 10; dx++) {
-                    let x = floor(cx + dx);
-                    let y = floor(cy + dy);
-                    let i = (y * video.width + x) * 4;
-                    sumR += video.pixels[i];
-                    sumG += video.pixels[i+1];
-                    sum
+            document.getElementById('result-screen').style
