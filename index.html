@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Debug Ver）</title>
+    <title>かめはめ波（Simple Camera Ver）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; touch-action: none; }
         
-        /* エラーログ表示用エリア */
+        /* 念のためエラーログ表示エリアは残します */
         #debug-log {
             position: absolute; top: 0; left: 0; width: 100%; 
             background: rgba(0,0,0,0.7); color: #FF0000; 
             font-size: 16px; z-index: 9999; pointer-events: none;
-            white-space: pre-wrap; padding: 10px;
+            white-space: pre-wrap; padding: 10px; display: none; /* 通常は隠す */
         }
 
         canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
@@ -25,14 +25,12 @@
         }
         button:active { transform: scale(0.95); }
 
-        /* 最初から表示するように flex に変更 */
         .screen { 
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 30px; 
             border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 5%; pointer-events: auto;
             width: 90%; max-width: 600px; box-sizing: border-box;
         }
-        /* ゲーム開始後は隠す */
         .hidden { display: none !important; }
         
         h1 { color: #00FF00; font-size: clamp(40px, 10vw, 80px); margin: 0 0 20px 0; text-shadow: 0 0 15px white; font-weight: 900; letter-spacing: 5px; text-align: center; }
@@ -49,7 +47,9 @@
 
     <script>
         window.onerror = function(msg, url, line, col, error) {
-            document.getElementById('debug-log').innerHTML += "【Error】" + msg + "<br>";
+            var log = document.getElementById('debug-log');
+            log.style.display = 'block';
+            log.innerHTML += "【Error】" + msg + "<br>";
         };
     </script>
 
@@ -66,7 +66,7 @@
             <p>〜 AI モーションキャプチャ版 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             <button onclick="startGame()" id="start-btn" disabled>ロード中...</button>
-            <div id="loading-msg">カメラとAIを準備中...</div>
+            <div id="loading-msg">カメラ起動中...</div>
             <div class="credit">音楽素材：魔王魂 / AR Spark</div>
         </div>
 
@@ -133,20 +133,11 @@
                 if(savedScore) highScore = parseInt(savedScore);
                 updateScoreLabels();
                 
-                // カメラ設定（シンプル化）
-                let constraints = {
-                    video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
-                    audio: false
-                };
-                
-                // GitHub上ならインカメラを試みる
-                if (location.hostname.includes("github.io")) {
-                    constraints.video.facingMode = "user";
-                }
-
-                video = createCapture(constraints, function(stream) { 
+                // ★修正：最もシンプルなカメラ起動方法に変更
+                // 余計な指定（facingModeなど）を削除しました
+                video = createCapture(VIDEO, function(stream) { 
                     console.log("Camera OK");
-                    document.getElementById('debug-log').innerHTML += "カメラ起動成功<br>";
+                    // カメラが起動したらPoseNetを開始
                     initPoseNet();
                 });
                 video.size(CAM_W, CAM_H);
@@ -156,4 +147,156 @@
                 bossBaseY = height * 0.6;
                 
             } catch(e) {
-                document.getElementById('debug-
+                console.error(e);
+                alert("起動エラー: " + e.message);
+            }
+        }
+
+        function initPoseNet() {
+            document.getElementById('loading-msg').innerText = "AIモデル読み込み中...";
+            
+            let options = {
+                architecture: 'MobileNetV1',
+                imageScaleFactor: 0.3,
+                outputStride: 16,
+                flipHorizontal: true,
+                minConfidence: 0.5,
+                scoreThreshold: 0.5,
+                detectionType: 'single',
+                multiplier: 0.75
+            };
+            
+            // ml5の読み込み
+            try {
+                poseNet = ml5.poseNet(video, options, modelReady);
+                poseNet.on('pose', function(results) {
+                    poses = results;
+                });
+            } catch(e) {
+                document.getElementById('loading-msg').innerText = "AIエラー: 再読み込みしてください";
+            }
+        }
+
+        function modelReady() {
+            console.log('Model Loaded');
+            modelIsReady = true;
+            document.getElementById('start-btn').innerText = "あそぶ！";
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('loading-msg').style.display = 'none';
+        }
+
+        function loadResources() {
+            // エラーハンドリング付き読み込み
+            imgWater = loadImage('water.png', ()=>{}, (e)=>{ console.log("画像なし:water"); });
+            imgEnemy1 = loadImage('enemy1.png', ()=>{}, (e)=>{ console.log("画像なし:enemy1"); });
+            imgEnemy2 = loadImage('enemy2.png', ()=>{}, (e)=>{ console.log("画像なし:enemy2"); });
+            imgBoss = loadImage('boss.png', ()=>{}, (e)=>{ console.log("画像なし:boss"); });
+            imgBossEnd = loadImage('boss_end.png', ()=>{}, (e)=>{ console.log("画像なし:boss_end"); });
+            
+            bgmNormal = loadSound('normal_bgm.mp3', ()=>{soundLoaded.normal=true}, (e)=>{ console.log("音楽なし:normal"); });
+            bgmExtra1 = loadSound('extra1_bgm.mp3', ()=>{soundLoaded.extra1=true}, (e)=>{ console.log("音楽なし:extra1"); });
+            bgmBoss = loadSound('boss_bgm.mp3', ()=>{soundLoaded.boss=true}, (e)=>{ console.log("音楽なし:boss"); });
+            bgmVictory = loadSound('victory.mp3', ()=>{soundLoaded.victory=true}, (e)=>{ console.log("音楽なし:victory"); });
+        }
+
+        function setupSounds() {
+            osc = new p5.Oscillator('sine');
+            osc.amp(0); osc.start();
+            noiseOsc = new p5.Noise('brown');
+            noiseOsc.amp(0); noiseOsc.start();
+        }
+
+        function ensureAudio() {
+            if (getAudioContext().state !== 'running') {
+                getAudioContext().resume();
+            }
+        }
+
+        function updateScoreLabels() {
+            document.getElementById('high-score-title').innerText = formatScore(highScore);
+            document.getElementById('high-score-result').innerText = formatScore(highScore);
+        }
+
+        function formatScore(n) {
+            return n.toLocaleString();
+        }
+
+        function draw() {
+            background(0);
+            
+            if (video && video.width) {
+                let scaleW = width / video.width;
+                let scaleH = height / video.height;
+                vScale = max(scaleW, scaleH);
+                let renderW = video.width * vScale;
+                let renderH = video.height * vScale;
+                videoX = (width - renderW) / 2;
+                videoY = (height - renderH) / 2;
+
+                push();
+                translate(width, 0);
+                scale(-1, 1);
+                // 普通に描画
+                image(video, -(videoX + renderW), videoY, renderW, renderH); 
+                pop();
+                
+                // 半透明の黒フィルター
+                fill(0, 150); 
+                noStroke();
+                rect(0, 0, width, height);
+            }
+
+            if (gameState === 'LOADING' || gameState === 'TITLE') {
+                updatePoseTracking();
+                drawSkeletonDebug();
+            }
+
+            if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
+                updatePoseTracking(); 
+                updateGameLogic();    
+                drawGameObjects();
+                drawGameUI(); 
+                drawSkeletonDebug();
+            } else if (gameState === 'WARNING') {
+                updatePoseTracking(); 
+                drawWarning();
+            } else if (gameState === 'COUNTDOWN') {
+                updatePoseTracking(); 
+                drawCountdown();
+            }
+        }
+
+        function updatePoseTracking() {
+            trackedPos = [null, null];
+            if (poses.length > 0) {
+                let pose = poses[0].pose;
+                if (pose.leftWrist.confidence > 0.1) trackedPos[0] = transformCoords(pose.leftWrist.x, pose.leftWrist.y);
+                if (pose.rightWrist.confidence > 0.1) trackedPos[1] = transformCoords(pose.rightWrist.x, pose.rightWrist.y);
+            }
+        }
+
+        function transformCoords(x, y) {
+            let screenX = map(x, 0, video.width, width, 0); 
+            let screenY = map(y, 0, video.height, 0, height);
+            return { x: screenX, y: screenY };
+        }
+
+        function drawSkeletonDebug() {
+            noFill(); strokeWeight(5);
+            if (trackedPos[0]) { stroke(0, 255, 200); circle(trackedPos[0].x, trackedPos[0].y, 50); }
+            if (trackedPos[1]) { stroke(255, 50, 50); circle(trackedPos[1].x, trackedPos[1].y, 50); }
+        }
+
+        function updateGameLogic() {
+            if (frameCount % 60 === 0) {
+                if (gameState === 'GAME' && timeLeft > 0) timeLeft--;
+                if ((gameState === 'EXTRA1' || gameState === 'EXTRA2') && extraTimer > 0) extraTimer--;
+            }
+
+            if (gameState === 'GAME') {
+                if (timeLeft <= 20 && !waterSpawned && !hasCollectedWater) {
+                    spawnWater();
+                    waterSpawned = true;
+                }
+                if (timeLeft <= 0) {
+                    if (hasCollectedWater
