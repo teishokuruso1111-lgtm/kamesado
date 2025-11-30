@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Sado Battle Ver - Smooth Logic）</title>
+    <title>かめはめ波（Sado Battle Ver - Noise Filter）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
         canvas { display: block; }
@@ -55,7 +55,7 @@
             <p>〜 さいきょうの せんし 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             <button onclick="startCalibration()">あそぶ！</button>
-            <div class="credit">音楽素材：魔王魂 / AR Spark (Smooth Ver)</div>
+            <div class="credit">音楽素材：魔王魂 / AR Spark (NoiseFilter Ver)</div>
         </div>
         <div id="calibration-screen">
             <div class="calib-text">白い枠の中に<br>リストバンドを入れてクリック！</div>
@@ -81,10 +81,15 @@
         // YCbCr用のしきい値
         const COLOR_DIST_SQ = 40 * 40; 
         
-        // --- 【機能1】座標スムージング用定数・変数 ---
-        // 0.2 = 前回80% + 今回20% の割合で合成する
+        // --- 【機能1】座標スムージング ---
         const SMOOTHING_FACTOR = 0.2; 
         let prevTrackedPos = [null, null];
+
+        // --- 【機能2】ノイズ除去（Area Threshold）用定数 ---
+        // 検出されたピクセル数がこれ未満なら「ノイズ」とみなして無視する
+        // SKIP_STEPが4なので、実ピクセル数としては見た目より少なくなります。
+        // 30〜50程度で調整。ここでは40に設定。
+        const AREA_THRESHOLD = 40;
         // ------------------------------------------
 
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
@@ -101,8 +106,6 @@
         let timeLeft = 60;
         let gameState = 'LOADING'; 
         
-        // RGBの代わりにYCbCrのターゲットを保持
-        // targetColor = { y, cb, cr }
         let targetColor = null; 
         let trackedPos = [null, null]; 
         
@@ -186,7 +189,6 @@
             return n.toLocaleString();
         }
 
-        // RGBからYCbCrへの変換関数
         function rgbToYCbCr(r, g, b) {
             let y = 0.299 * r + 0.587 * g + 0.114 * b;
             let cb = -0.1687 * r - 0.3313 * g + 0.5000 * b + 128;
@@ -224,10 +226,9 @@
                 noFill(); stroke(255); strokeWeight(5);
                 rect(width/2, height/2, 150, 150);
                 
-                // キャリブレーション中の中心色取得（表示用はRGBのまま）
                 let cx = (width/2 - x) / scaleFactor;
                 let cy = (height/2 - y) / scaleFactor;
-                let c = getAverageRGB(cx, cy, 30); // 表示用
+                let c = getAverageRGB(cx, cy, 30);
                 if(c) {
                     fill(c[0], c[1], c[2]); stroke(255); strokeWeight(2);
                     rect(width/2, height/2 - 120, 60, 60);
@@ -244,14 +245,14 @@
                 processVideoYCbCr();
                 drawWarning();
             } else if (gameState === 'CALIBRATION') {
-                processVideoYCbCr(); // マッチしている場所のプレビュー用
+                processVideoYCbCr(); 
             } else if (gameState === 'COUNTDOWN') {
                 processVideoYCbCr();
                 drawCountdown();
             }
         }
 
-        // --- 【修正】processVideoYCbCr：スムージング機能を追加 ---
+        // --- 【修正】processVideoYCbCr：機能2 ノイズ除去を追加 ---
         function processVideoYCbCr() {
             if (!targetColor) return;
             video.loadPixels();
@@ -266,10 +267,7 @@
                     let g = video.pixels[i+1];
                     let b = video.pixels[i+2];
 
-                    // 現在のピクセルをYCbCr変換
                     let currentYCbCr = rgbToYCbCr(r, g, b);
-
-                    // Y（輝度）は無視し、CbとCr（色差）の距離だけで判定する
                     let d = (currentYCbCr.cb - targetColor.cb)**2 + (currentYCbCr.cr - targetColor.cr)**2;
                     
                     if (d < COLOR_DIST_SQ) {
@@ -284,9 +282,11 @@
                 noStroke(); fill(255, 255, 255, 200);
                 for(let p of matchingPixels) circle(p.x, p.y, 4);
             }
-            if (matchingPixels.length < 10) {
+            
+            // --- 【機能2】足切り判定 ---
+            // 全体の検出数が少なすぎる場合はノイズとみなして処理終了
+            if (matchingPixels.length < AREA_THRESHOLD) {
                 trackedPos = [null, null];
-                // ロスト時は履歴もリセット（または保持するかは仕様次第だが、ここではリセットして瞬時移動を防ぐ）
                 prevTrackedPos = [null, null];
                 return;
             }
@@ -300,20 +300,21 @@
             // --- 左手（0番） ---
             let rawPos0 = null;
             for(let i=0; i<leftCount; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
-            if(count > 10) rawPos0 = {x: sumX/count, y: sumY/count};
+            
+            // 【機能2】ここでも AREA_THRESHOLD を使用
+            // 以前は count > 10 でしたが、厳しく判定することで細かいノイズを無視
+            if(count > AREA_THRESHOLD) rawPos0 = {x: sumX/count, y: sumY/count};
 
-            // スムージング処理 (Lerp)
             if (rawPos0) {
                 if (prevTrackedPos[0]) {
-                    // 前回の座標があれば、滑らかに移動 (Linear Interpolation)
                     trackedPos[0] = {
                         x: lerp(prevTrackedPos[0].x, rawPos0.x, SMOOTHING_FACTOR),
                         y: lerp(prevTrackedPos[0].y, rawPos0.y, SMOOTHING_FACTOR)
                     };
                 } else {
-                    trackedPos[0] = rawPos0; // 初回検出
+                    trackedPos[0] = rawPos0;
                 }
-                prevTrackedPos[0] = trackedPos[0]; // 履歴更新
+                prevTrackedPos[0] = trackedPos[0];
             } else {
                 trackedPos[0] = null;
                 prevTrackedPos[0] = null;
@@ -323,9 +324,10 @@
             sumX=0; sumY=0; count=0;
             let rawPos1 = null;
             for(let i=rightStart; i<matchingPixels.length; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
-            if(count > 10) rawPos1 = {x: sumX/count, y: sumY/count};
+            
+            // 【機能2】右側もしきい値判定
+            if(count > AREA_THRESHOLD) rawPos1 = {x: sumX/count, y: sumY/count};
 
-            // スムージング処理 (Lerp)
             if (rawPos1) {
                 if (prevTrackedPos[1]) {
                     trackedPos[1] = {
@@ -765,7 +767,7 @@
         }
         function resetCalibration() { 
             targetColor = null; 
-            prevTrackedPos = [null, null]; // キャリブレーションリセット時に履歴も消去
+            prevTrackedPos = [null, null];
         }
         function endGame() { 
             gameState = 'RESULT'; 
