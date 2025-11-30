@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Sado Battle Ver - High Accuracy）</title>
+    <title>かめはめ波（Stability Ver）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
-        canvas { display: block; }
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 10; }
+        canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        /* UIレイヤーのZ-indexを高くして確実に表示 */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 20; }
         
         button { 
             background: linear-gradient(45deg, #FFD700, #FFA500); 
@@ -17,11 +19,14 @@
         button:active { transform: scale(0.95); }
         button.secondary { background: #666; color: white; font-size: 18px; padding: 10px 30px; border: 2px solid #CCC; }
 
+        /* 初期状態でタイトルを表示するように変更（JS依存を減らす） */
         .screen { 
             display: none; flex-direction: column; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.85); padding: 40px; border-radius: 30px; 
             border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 60px; pointer-events: auto;
         }
+        /* タイトルだけは最初からflexにしておく */
+        #title-screen { display: flex; }
 
         #calibration-screen {
             display: none; width: 100%; height: 100%;
@@ -43,15 +48,15 @@
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
         
         .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
-        
-        /* ROIデバッグ用（本番では消しても良い） */
         #debug-info { position: absolute; top: 10px; right: 10px; color: lime; font-family: monospace; z-index: 100; pointer-events: none; text-align: right; }
+        #cam-status { position: absolute; top: 10px; left: 10px; color: yellow; font-family: monospace; z-index: 100; pointer-events: none; }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
 </head>
 <body>
+    <div id="cam-status">Camera Status: Init...</div>
     <div id="debug-info"></div>
     <div id="ui-layer">
         <div id="title-screen" class="screen">
@@ -59,7 +64,7 @@
             <p>〜 さいきょうの せんし 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             <button onclick="startCalibration()">あそぶ！</button>
-            <div class="credit">音楽素材：魔王魂 / AR Spark (High Accuracy Ver)</div>
+            <div class="credit">音楽素材：魔王魂 / AR Spark (Stable Ver)</div>
         </div>
         <div id="calibration-screen">
             <div class="calib-text">白い枠の中に<br>リストバンドを入れてクリック！</div>
@@ -79,15 +84,14 @@
 
     <script>
         // === 設定パラメータ ===
-        const SKIP_STEP = 4;       // 画素スキップ数
-        const CAM_W = 800; 
-        const CAM_H = 600;
-        const COLOR_DIST_SQ = 40 * 40; // 色差判定の閾値(二乗)
+        const SKIP_STEP = 4;
+        const CAM_W = 640; // 負荷軽減のため少し下げて安定重視
+        const CAM_H = 480;
+        const COLOR_DIST_SQ = 40 * 40;
         
-        // 追加機能用パラメータ
-        const LERP_FACTOR = 0.2;     // スムージング係数 (0.1〜0.3推奨)
-        const MIN_PIXEL_COUNT = 40;  // ノイズ除去：これ以下のピクセル数は無視
-        const ROI_MARGIN = 150;      // ROI探索範囲（ピクセル）
+        const LERP_FACTOR = 0.2;
+        const MIN_PIXEL_COUNT = 40;
+        const ROI_MARGIN = 150;
         
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
         let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
@@ -101,12 +105,10 @@
         let score = 0;
         let highScore = 0;
         let timeLeft = 60;
-        let gameState = 'LOADING'; 
+        let gameState = 'TITLE'; // 最初からTITLEにしておく
         
         let targetColor = null; 
         let trackedPos = [null, null];
-        
-        // スムージング用：前回の座標を保持
         let smoothedPos = [null, null];
         
         let chargeTimer = 0;
@@ -124,14 +126,14 @@
         let boss = null;
         let bossBaseY = 0; 
         let bossIsDead = false;
-
-        // デバッグ用フラグ
         let isROIMode = false; 
+        let camStatusDiv;
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
             colorMode(RGB, 255, 255, 255, 255);
             background(0);
+            camStatusDiv = document.getElementById('cam-status');
 
             loadResources();
 
@@ -139,35 +141,40 @@
             if(savedScore) highScore = parseInt(savedScore);
             updateScoreLabels();
             
-            let videoOptions = {
-                video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
-                audio: false
-            };
-            if (location.hostname.includes("github.io")) {
-                videoOptions.video.facingMode = "user";
-            }
-
-            video = createCapture(videoOptions, function() { 
-                console.log("Camera OK"); 
+            // 【重要修正】Android/iOS互換性のため制約を単純化
+            // ideal指定などはせず、デフォルトで取得してからリサイズする戦略
+            video = createCapture(VIDEO, function(stream) {
+                camStatusDiv.innerText = "Camera: READY";
+                console.log("Camera ready");
             });
-            video.size(CAM_W, CAM_H);
-            video.hide();
+            
+            // 【重要修正】モバイル対応のおまじない
+            if(video) {
+                video.size(CAM_W, CAM_H);
+                video.hide();
+                video.elt.setAttribute('playsinline', ''); // iOS/Androidでインライン再生必須
+                video.elt.setAttribute('muted', ''); 
+                video.elt.play().catch(e => console.log("Play error:", e));
+            } else {
+                camStatusDiv.innerText = "Camera: FAILED";
+            }
             
             setupSounds();
             bossBaseY = height * 0.6;
         }
 
         function loadResources() {
-            imgWater = loadImage('water.png', () => imagesLoaded.water = true, () => console.log('water.png not found'));
-            imgEnemy1 = loadImage('enemy1.png', () => imagesLoaded.enemy1 = true, () => console.log('enemy1.png not found'));
-            imgEnemy2 = loadImage('enemy2.png', () => imagesLoaded.enemy2 = true, () => console.log('enemy2.png not found'));
-            imgBoss = loadImage('boss.png', () => imagesLoaded.boss = true, () => console.log('boss.png not found'));
-            imgBossEnd = loadImage('boss_end.png', () => imagesLoaded.bossEnd = true, () => console.log('boss_end.png not found'));
+            // リソース読み込みエラーでも止まらないようにエラーハンドリングは維持
+            imgWater = loadImage('water.png', () => imagesLoaded.water = true, () => console.log('Err:water'));
+            imgEnemy1 = loadImage('enemy1.png', () => imagesLoaded.enemy1 = true, () => console.log('Err:enemy1'));
+            imgEnemy2 = loadImage('enemy2.png', () => imagesLoaded.enemy2 = true, () => console.log('Err:enemy2'));
+            imgBoss = loadImage('boss.png', () => imagesLoaded.boss = true, () => console.log('Err:boss'));
+            imgBossEnd = loadImage('boss_end.png', () => imagesLoaded.bossEnd = true, () => console.log('Err:bossEnd'));
             
-            bgmNormal = loadSound('normal_bgm.mp3', () => soundLoaded.normal = true, () => console.log('normal_bgm.mp3 not found'));
-            bgmExtra1 = loadSound('extra1_bgm.mp3', () => soundLoaded.extra1 = true, () => console.log('extra1_bgm.mp3 not found'));
-            bgmBoss = loadSound('boss_bgm.mp3', () => soundLoaded.boss = true, () => console.log('boss_bgm.mp3 not found'));
-            bgmVictory = loadSound('victory.mp3', () => soundLoaded.victory = true, () => console.log('victory.mp3 not found'));
+            bgmNormal = loadSound('normal_bgm.mp3', () => soundLoaded.normal = true, () => console.log('Err:bgmNormal'));
+            bgmExtra1 = loadSound('extra1_bgm.mp3', () => soundLoaded.extra1 = true, () => console.log('Err:bgmExtra1'));
+            bgmBoss = loadSound('boss_bgm.mp3', () => soundLoaded.boss = true, () => console.log('Err:boss_bgm'));
+            bgmVictory = loadSound('victory.mp3', () => soundLoaded.victory = true, () => console.log('Err:victory'));
         }
 
         function setupSounds() {
@@ -192,48 +199,40 @@
             return n.toLocaleString();
         }
 
-        // RGB to YCbCr変換（ただし高速化のためループ内でインライン展開して使用推奨）
-        // Calibration等、単発で呼ぶとき用
-        function rgbToYCbCr(r, g, b) {
-            let y = 0.299 * r + 0.587 * g + 0.114 * b;
-            let cb = -0.1687 * r - 0.3313 * g + 0.5000 * b + 128;
-            let cr = 0.5000 * r - 0.4187 * g - 0.0813 * b + 128;
-            return { y: y, cb: cb, cr: cr };
-        }
-
         function draw() {
-            background(0);
-            if (!video || !video.width) {
-                fill(255); textAlign(CENTER); textSize(30); 
-                text("カメラ準備中...", width/2, height/2);
+            background(0); // 背景リセット
+
+            // カメラが準備できていない場合のガード
+            if (!video || !video.elt || video.elt.readyState < 2) {
+                fill(255); textAlign(CENTER); textSize(20); 
+                text("カメラを起動しています...", width/2, height/2);
                 return;
             }
-            if (gameState === 'LOADING') {
-                gameState = 'TITLE';
-                document.getElementById('title-screen').style.display = 'flex';
-            }
+            
+            // 安全策：video.widthが0なら描画しない
+            if (video.width === 0 || video.height === 0) return;
 
             push();
             translate(width, 0);
             scale(-1, 1);
+            
+            // スケール計算の安全性確保
             let scaleFactor = max(width/video.width, height/video.height);
+            if (!isFinite(scaleFactor) || scaleFactor === 0) scaleFactor = 1;
+
             let w = video.width * scaleFactor;
             let h = video.height * scaleFactor;
             let x = (width - w) / 2;
             let y = (height - h) / 2;
             
             image(video, x, y, w, h);
+            
+            // グローバル変数に保存
             window.vidScale = scaleFactor;
             window.vidX = x;
             window.vidY = y;
             
-            // ROI範囲の可視化（デバッグ）
-            if (isROIMode && smoothedPos[0] && smoothedPos[1]) {
-                noFill(); stroke(0, 255, 0, 100); strokeWeight(2);
-                // 画面座標をビデオ座標に戻してROI計算しているので、ここでは大まかなイメージ
-                // 正確な可視化は複雑になるため省略
-            }
-
+            // キャリブレーション中のガイド表示
             if (gameState === 'CALIBRATION') {
                 rectMode(CENTER);
                 noFill(); stroke(255); strokeWeight(5);
@@ -241,80 +240,8 @@
                 
                 let cx = (width/2 - x) / scaleFactor;
                 let cy = (height/2 - y) / scaleFactor;
-                let c = getAverageRGB(cx, cy, 30);
-                if(c) {
-                    fill(c[0], c[1], c[2]); stroke(255); strokeWeight(2);
+                // 色取得（描画用）
+                if (cx > 0 && cx < video.width && cy > 0 && cy < video.height) {
+                    let c = video.get(cx, cy); 
+                    fill(c); stroke(255); strokeWeight(2);
                     rect(width/2, height/2 - 120, 60, 60);
-                }
-            }
-            pop();
-
-            // 状態に応じた処理
-            if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2' || gameState === 'WARNING' || gameState === 'COUNTDOWN' || gameState === 'CALIBRATION') {
-                processVideoYCbCr(); 
-            }
-            
-            if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
-                updateGameLogic();    
-                drawGameObjects();
-                drawGameUI(); 
-            } else if (gameState === 'WARNING') {
-                drawWarning();
-            } else if (gameState === 'COUNTDOWN') {
-                drawCountdown();
-            }
-        }
-
-        // ==========================================
-        //  CORE TRACKING LOGIC (Optimized)
-        // ==========================================
-        function processVideoYCbCr() {
-            if (!targetColor) return;
-            if (video.pixels.length === 0) video.loadPixels(); // 初回ロード
-            
-            // 毎回loadPixelsすると重いが、p5.jsの仕様上必要。
-            // ブラウザによってはvideo要素から直接Canvas APIで取得するほうが速いが、
-            // 互換性維持のためp5標準の方法を使う。
-            video.loadPixels();
-            
-            let matchingPixels = [];
-            
-            // --- ROI (Region of Interest) 決定 ---
-            // 前回の手の位置(smoothedPos)が両方ある場合のみROIモードを試す
-            let scanRanges = [];
-            let useROI = false;
-
-            if (smoothedPos[0] && smoothedPos[1]) {
-                useROI = true;
-                // 手の座標（画面座標）をビデオ座標（0-CAM_W, 0-CAM_H）に変換
-                let p1 = screenToVideo(smoothedPos[0].x, smoothedPos[0].y);
-                let p2 = screenToVideo(smoothedPos[1].x, smoothedPos[1].y);
-                
-                // 2つの手周辺のボックスを作成
-                [p1, p2].forEach(p => {
-                    if(p) {
-                        let sx = Math.floor(Math.max(0, p.x - ROI_MARGIN));
-                        let ex = Math.floor(Math.min(video.width, p.x + ROI_MARGIN));
-                        let sy = Math.floor(Math.max(0, p.y - ROI_MARGIN));
-                        let ey = Math.floor(Math.min(video.height, p.y + ROI_MARGIN));
-                        scanRanges.push({sx, ex, sy, ey});
-                    }
-                });
-            } else {
-                // ロストしている場合は全画面
-                scanRanges.push({sx: 0, ex: video.width, sy: 0, ey: video.height});
-            }
-
-            // --- ピクセル走査 ---
-            let foundCount = 0;
-            
-            // スキャン関数 (ROIごとに実行)
-            function scan(range) {
-                // インライン化のための変数キャッシュ
-                let tCb = targetColor.cb;
-                let tCr = targetColor.cr;
-                let thresh = COLOR_DIST_SQ;
-                let vW = video.width;
-                let pixels = video.pixels;
-
-                for (let y = range.sy;
