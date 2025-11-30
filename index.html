@@ -3,13 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>かめはめ波（Stability Ver）</title>
+    <title>かめはめ波（Sado Battle Ver - Smooth Logic）</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
-        canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
-        
-        /* UIレイヤーのZ-indexを高くして確実に表示 */
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 20; }
+        canvas { display: block; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; z-index: 10; }
         
         button { 
             background: linear-gradient(45deg, #FFD700, #FFA500); 
@@ -19,14 +17,11 @@
         button:active { transform: scale(0.95); }
         button.secondary { background: #666; color: white; font-size: 18px; padding: 10px 30px; border: 2px solid #CCC; }
 
-        /* 初期状態でタイトルを表示するように変更（JS依存を減らす） */
         .screen { 
             display: none; flex-direction: column; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.85); padding: 40px; border-radius: 30px; 
             border: 4px solid #00FF00; box-shadow: 0 0 30px #00FF00; margin-top: 60px; pointer-events: auto;
         }
-        /* タイトルだけは最初からflexにしておく */
-        #title-screen { display: flex; }
 
         #calibration-screen {
             display: none; width: 100%; height: 100%;
@@ -48,23 +43,19 @@
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFFF00, #FF4500); transition: width 0.1s; }
         
         .credit { margin-top: 20px; font-size: 12px; color: #AAA; text-align: center; }
-        #debug-info { position: absolute; top: 10px; right: 10px; color: lime; font-family: monospace; z-index: 100; pointer-events: none; text-align: right; }
-        #cam-status { position: absolute; top: 10px; left: 10px; color: yellow; font-family: monospace; z-index: 100; pointer-events: none; }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
 </head>
 <body>
-    <div id="cam-status">Camera Status: Init...</div>
-    <div id="debug-info"></div>
     <div id="ui-layer">
         <div id="title-screen" class="screen">
             <h1>かめはめ波</h1>
             <p>〜 さいきょうの せんし 〜</p>
             <p style="color:#FFFF00">ハイスコア: <span id="high-score-title">0</span></p>
             <button onclick="startCalibration()">あそぶ！</button>
-            <div class="credit">音楽素材：魔王魂 / AR Spark (Stable Ver)</div>
+            <div class="credit">音楽素材：魔王魂 / AR Spark (Smooth Ver)</div>
         </div>
         <div id="calibration-screen">
             <div class="calib-text">白い枠の中に<br>リストバンドを入れてクリック！</div>
@@ -83,16 +74,19 @@
     </div>
 
     <script>
-        // === 設定パラメータ ===
-        const SKIP_STEP = 4;
-        const CAM_W = 640; // 負荷軽減のため少し下げて安定重視
-        const CAM_H = 480;
-        const COLOR_DIST_SQ = 40 * 40;
+        const SKIP_STEP = 4; 
+        const CAM_W = 800; 
+        const CAM_H = 600;
         
-        const LERP_FACTOR = 0.2;
-        const MIN_PIXEL_COUNT = 40;
-        const ROI_MARGIN = 150;
+        // YCbCr用のしきい値
+        const COLOR_DIST_SQ = 40 * 40; 
         
+        // --- 【機能1】座標スムージング用定数・変数 ---
+        // 0.2 = 前回80% + 今回20% の割合で合成する
+        const SMOOTHING_FACTOR = 0.2; 
+        let prevTrackedPos = [null, null];
+        // ------------------------------------------
+
         let imgWater, imgEnemy1, imgEnemy2, imgBoss, imgBossEnd;
         let bgmNormal, bgmExtra1, bgmBoss, bgmVictory; 
         
@@ -105,11 +99,12 @@
         let score = 0;
         let highScore = 0;
         let timeLeft = 60;
-        let gameState = 'TITLE'; // 最初からTITLEにしておく
+        let gameState = 'LOADING'; 
         
+        // RGBの代わりにYCbCrのターゲットを保持
+        // targetColor = { y, cb, cr }
         let targetColor = null; 
-        let trackedPos = [null, null];
-        let smoothedPos = [null, null];
+        let trackedPos = [null, null]; 
         
         let chargeTimer = 0;
         let isCharging = false;
@@ -126,14 +121,11 @@
         let boss = null;
         let bossBaseY = 0; 
         let bossIsDead = false;
-        let isROIMode = false; 
-        let camStatusDiv;
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
             colorMode(RGB, 255, 255, 255, 255);
             background(0);
-            camStatusDiv = document.getElementById('cam-status');
 
             loadResources();
 
@@ -141,40 +133,35 @@
             if(savedScore) highScore = parseInt(savedScore);
             updateScoreLabels();
             
-            // 【重要修正】Android/iOS互換性のため制約を単純化
-            // ideal指定などはせず、デフォルトで取得してからリサイズする戦略
-            video = createCapture(VIDEO, function(stream) {
-                camStatusDiv.innerText = "Camera: READY";
-                console.log("Camera ready");
-            });
-            
-            // 【重要修正】モバイル対応のおまじない
-            if(video) {
-                video.size(CAM_W, CAM_H);
-                video.hide();
-                video.elt.setAttribute('playsinline', ''); // iOS/Androidでインライン再生必須
-                video.elt.setAttribute('muted', ''); 
-                video.elt.play().catch(e => console.log("Play error:", e));
-            } else {
-                camStatusDiv.innerText = "Camera: FAILED";
+            let videoOptions = {
+                video: { width: { ideal: CAM_W }, height: { ideal: CAM_H } },
+                audio: false
+            };
+            if (location.hostname.includes("github.io")) {
+                videoOptions.video.facingMode = "user";
             }
+
+            video = createCapture(videoOptions, function() { 
+                console.log("Camera OK"); 
+            });
+            video.size(CAM_W, CAM_H);
+            video.hide();
             
             setupSounds();
             bossBaseY = height * 0.6;
         }
 
         function loadResources() {
-            // リソース読み込みエラーでも止まらないようにエラーハンドリングは維持
-            imgWater = loadImage('water.png', () => imagesLoaded.water = true, () => console.log('Err:water'));
-            imgEnemy1 = loadImage('enemy1.png', () => imagesLoaded.enemy1 = true, () => console.log('Err:enemy1'));
-            imgEnemy2 = loadImage('enemy2.png', () => imagesLoaded.enemy2 = true, () => console.log('Err:enemy2'));
-            imgBoss = loadImage('boss.png', () => imagesLoaded.boss = true, () => console.log('Err:boss'));
-            imgBossEnd = loadImage('boss_end.png', () => imagesLoaded.bossEnd = true, () => console.log('Err:bossEnd'));
+            imgWater = loadImage('water.png', () => imagesLoaded.water = true, () => console.log('water.png not found'));
+            imgEnemy1 = loadImage('enemy1.png', () => imagesLoaded.enemy1 = true, () => console.log('enemy1.png not found'));
+            imgEnemy2 = loadImage('enemy2.png', () => imagesLoaded.enemy2 = true, () => console.log('enemy2.png not found'));
+            imgBoss = loadImage('boss.png', () => imagesLoaded.boss = true, () => console.log('boss.png not found'));
+            imgBossEnd = loadImage('boss_end.png', () => imagesLoaded.bossEnd = true, () => console.log('boss_end.png not found'));
             
-            bgmNormal = loadSound('normal_bgm.mp3', () => soundLoaded.normal = true, () => console.log('Err:bgmNormal'));
-            bgmExtra1 = loadSound('extra1_bgm.mp3', () => soundLoaded.extra1 = true, () => console.log('Err:bgmExtra1'));
-            bgmBoss = loadSound('boss_bgm.mp3', () => soundLoaded.boss = true, () => console.log('Err:boss_bgm'));
-            bgmVictory = loadSound('victory.mp3', () => soundLoaded.victory = true, () => console.log('Err:victory'));
+            bgmNormal = loadSound('normal_bgm.mp3', () => soundLoaded.normal = true, () => console.log('normal_bgm.mp3 not found'));
+            bgmExtra1 = loadSound('extra1_bgm.mp3', () => soundLoaded.extra1 = true, () => console.log('extra1_bgm.mp3 not found'));
+            bgmBoss = loadSound('boss_bgm.mp3', () => soundLoaded.boss = true, () => console.log('boss_bgm.mp3 not found'));
+            bgmVictory = loadSound('victory.mp3', () => soundLoaded.victory = true, () => console.log('victory.mp3 not found'));
         }
 
         function setupSounds() {
@@ -199,49 +186,628 @@
             return n.toLocaleString();
         }
 
-        function draw() {
-            background(0); // 背景リセット
+        // RGBからYCbCrへの変換関数
+        function rgbToYCbCr(r, g, b) {
+            let y = 0.299 * r + 0.587 * g + 0.114 * b;
+            let cb = -0.1687 * r - 0.3313 * g + 0.5000 * b + 128;
+            let cr = 0.5000 * r - 0.4187 * g - 0.0813 * b + 128;
+            return { y: y, cb: cb, cr: cr };
+        }
 
-            // カメラが準備できていない場合のガード
-            if (!video || !video.elt || video.elt.readyState < 2) {
-                fill(255); textAlign(CENTER); textSize(20); 
-                text("カメラを起動しています...", width/2, height/2);
+        function draw() {
+            background(0);
+            if (!video || !video.width) {
+                fill(255); textAlign(CENTER); textSize(30); 
+                text("カメラ準備中...", width/2, height/2);
                 return;
             }
-            
-            // 安全策：video.widthが0なら描画しない
-            if (video.width === 0 || video.height === 0) return;
+            if (gameState === 'LOADING') {
+                gameState = 'TITLE';
+                document.getElementById('title-screen').style.display = 'flex';
+            }
 
             push();
             translate(width, 0);
             scale(-1, 1);
-            
-            // スケール計算の安全性確保
             let scaleFactor = max(width/video.width, height/video.height);
-            if (!isFinite(scaleFactor) || scaleFactor === 0) scaleFactor = 1;
-
             let w = video.width * scaleFactor;
             let h = video.height * scaleFactor;
             let x = (width - w) / 2;
             let y = (height - h) / 2;
-            
             image(video, x, y, w, h);
-            
-            // グローバル変数に保存
             window.vidScale = scaleFactor;
             window.vidX = x;
             window.vidY = y;
             
-            // キャリブレーション中のガイド表示
             if (gameState === 'CALIBRATION') {
                 rectMode(CENTER);
                 noFill(); stroke(255); strokeWeight(5);
                 rect(width/2, height/2, 150, 150);
                 
+                // キャリブレーション中の中心色取得（表示用はRGBのまま）
                 let cx = (width/2 - x) / scaleFactor;
                 let cy = (height/2 - y) / scaleFactor;
-                // 色取得（描画用）
-                if (cx > 0 && cx < video.width && cy > 0 && cy < video.height) {
-                    let c = video.get(cx, cy); 
-                    fill(c); stroke(255); strokeWeight(2);
+                let c = getAverageRGB(cx, cy, 30); // 表示用
+                if(c) {
+                    fill(c[0], c[1], c[2]); stroke(255); strokeWeight(2);
                     rect(width/2, height/2 - 120, 60, 60);
+                }
+            }
+            pop();
+
+            if (gameState === 'GAME' || gameState === 'EXTRA1' || gameState === 'EXTRA2') {
+                processVideoYCbCr(); 
+                updateGameLogic();    
+                drawGameObjects();
+                drawGameUI(); 
+            } else if (gameState === 'WARNING') {
+                processVideoYCbCr();
+                drawWarning();
+            } else if (gameState === 'CALIBRATION') {
+                processVideoYCbCr(); // マッチしている場所のプレビュー用
+            } else if (gameState === 'COUNTDOWN') {
+                processVideoYCbCr();
+                drawCountdown();
+            }
+        }
+
+        // --- 【修正】processVideoYCbCr：スムージング機能を追加 ---
+        function processVideoYCbCr() {
+            if (!targetColor) return;
+            video.loadPixels();
+            if (video.pixels.length === 0) return;
+            
+            let matchingPixels = [];
+            // ピクセル走査
+            for (let y = 0; y < video.height; y += SKIP_STEP) {
+                for (let x = 0; x < video.width; x += SKIP_STEP) {
+                    let i = (y * video.width + x) * 4;
+                    let r = video.pixels[i];
+                    let g = video.pixels[i+1];
+                    let b = video.pixels[i+2];
+
+                    // 現在のピクセルをYCbCr変換
+                    let currentYCbCr = rgbToYCbCr(r, g, b);
+
+                    // Y（輝度）は無視し、CbとCr（色差）の距離だけで判定する
+                    let d = (currentYCbCr.cb - targetColor.cb)**2 + (currentYCbCr.cr - targetColor.cr)**2;
+                    
+                    if (d < COLOR_DIST_SQ) {
+                        let screenX = width - (window.vidX + x * window.vidScale);
+                        let screenY = window.vidY + y * window.vidScale;
+                        matchingPixels.push({x: screenX, y: screenY});
+                    }
+                }
+            }
+            
+            if (gameState === 'CALIBRATION') {
+                noStroke(); fill(255, 255, 255, 200);
+                for(let p of matchingPixels) circle(p.x, p.y, 4);
+            }
+            if (matchingPixels.length < 10) {
+                trackedPos = [null, null];
+                // ロスト時は履歴もリセット（または保持するかは仕様次第だが、ここではリセットして瞬時移動を防ぐ）
+                prevTrackedPos = [null, null];
+                return;
+            }
+
+            // 重心計算
+            matchingPixels.sort((a, b) => a.x - b.x);
+            let leftCount = Math.floor(matchingPixels.length * 0.4);
+            let rightStart = Math.floor(matchingPixels.length * 0.6);
+            let sumX=0, sumY=0, count=0;
+            
+            // --- 左手（0番） ---
+            let rawPos0 = null;
+            for(let i=0; i<leftCount; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
+            if(count > 10) rawPos0 = {x: sumX/count, y: sumY/count};
+
+            // スムージング処理 (Lerp)
+            if (rawPos0) {
+                if (prevTrackedPos[0]) {
+                    // 前回の座標があれば、滑らかに移動 (Linear Interpolation)
+                    trackedPos[0] = {
+                        x: lerp(prevTrackedPos[0].x, rawPos0.x, SMOOTHING_FACTOR),
+                        y: lerp(prevTrackedPos[0].y, rawPos0.y, SMOOTHING_FACTOR)
+                    };
+                } else {
+                    trackedPos[0] = rawPos0; // 初回検出
+                }
+                prevTrackedPos[0] = trackedPos[0]; // 履歴更新
+            } else {
+                trackedPos[0] = null;
+                prevTrackedPos[0] = null;
+            }
+            
+            // --- 右手（1番） ---
+            sumX=0; sumY=0; count=0;
+            let rawPos1 = null;
+            for(let i=rightStart; i<matchingPixels.length; i++) { sumX += matchingPixels[i].x; sumY += matchingPixels[i].y; count++; }
+            if(count > 10) rawPos1 = {x: sumX/count, y: sumY/count};
+
+            // スムージング処理 (Lerp)
+            if (rawPos1) {
+                if (prevTrackedPos[1]) {
+                    trackedPos[1] = {
+                        x: lerp(prevTrackedPos[1].x, rawPos1.x, SMOOTHING_FACTOR),
+                        y: lerp(prevTrackedPos[1].y, rawPos1.y, SMOOTHING_FACTOR)
+                    };
+                } else {
+                    trackedPos[1] = rawPos1;
+                }
+                prevTrackedPos[1] = trackedPos[1];
+            } else {
+                trackedPos[1] = null;
+                prevTrackedPos[1] = null;
+            }
+            
+            if(trackedPos[0]) { stroke(0,255,0); strokeWeight(4); noFill(); circle(trackedPos[0].x, trackedPos[0].y, 60); }
+            if(trackedPos[1]) { stroke(0,255,0); strokeWeight(4); noFill(); circle(trackedPos[1].x, trackedPos[1].y, 60); }
+        }
+
+        function getAverageRGB(cx, cy, size) {
+            if (!video || video.pixels.length === 0) return null;
+            let sumR=0, sumG=0, sumB=0, count=0;
+            let half = floor(size/2);
+            for(let dy = -half; dy <= half; dy++) {
+                for(let dx = -half; dx <= half; dx++) {
+                    let x = floor(cx + dx);
+                    let y = floor(cy + dy);
+                    if (x >= 0 && x < video.width && y >= 0 && y < video.height) {
+                        let i = (y * video.width + x) * 4;
+                        sumR += video.pixels[i];
+                        sumG += video.pixels[i+1];
+                        sumB += video.pixels[i+2];
+                        count++;
+                    }
+                }
+            }
+            if (count === 0) return null;
+            return [sumR/count, sumG/count, sumB/count];
+        }
+
+        function getAverageYCbCr(cx, cy, size) {
+            if (!video || video.pixels.length === 0) return null;
+            let sumCb=0, sumCr=0, count=0;
+            let half = floor(size/2);
+            for(let dy = -half; dy <= half; dy++) {
+                for(let dx = -half; dx <= half; dx++) {
+                    let x = floor(cx + dx);
+                    let y = floor(cy + dy);
+                    if (x >= 0 && x < video.width && y >= 0 && y < video.height) {
+                        let i = (y * video.width + x) * 4;
+                        let r = video.pixels[i];
+                        let g = video.pixels[i+1];
+                        let b = video.pixels[i+2];
+                        let ycbcr = rgbToYCbCr(r, g, b);
+                        
+                        sumCb += ycbcr.cb;
+                        sumCr += ycbcr.cr;
+                        count++;
+                    }
+                }
+            }
+            if (count === 0) return null;
+            return { y: 0, cb: sumCb/count, cr: sumCr/count };
+        }
+
+        function updateGameLogic() {
+            if (frameCount % 60 === 0) {
+                if (gameState === 'GAME' && timeLeft > 0) timeLeft--;
+                if ((gameState === 'EXTRA1' || gameState === 'EXTRA2') && extraTimer > 0) extraTimer--;
+            }
+
+            if (gameState === 'GAME') {
+                if (timeLeft <= 20 && !waterSpawned && !hasCollectedWater) {
+                    spawnWater();
+                    waterSpawned = true;
+                }
+                if (timeLeft <= 0) {
+                    if (hasCollectedWater) {
+                        gameState = 'WARNING';
+                        warningTextX = width;
+                        if(soundLoaded.normal && bgmNormal.isPlaying()) bgmNormal.stop();
+                    } else {
+                        endGame();
+                    }
+                }
+            } else if (gameState === 'EXTRA1') {
+                if (extraTimer <= 0) {
+                    startExtraStage2();
+                }
+            } else if (gameState === 'EXTRA2') {
+                if (bossIsDead && extraTimer <= 0) endGame();
+                else if (!bossIsDead && extraTimer <= 0) endGame(); 
+            }
+
+            handleKamehameha();
+            updateBalloons();
+            updateFloatingTexts();
+            if (gameState === 'EXTRA2') updateBoss();
+        }
+
+        function spawnWater() {
+            balloons.push({
+                type: 'WATER',
+                x: random(100, width-100),
+                y: height + 50,
+                r: 60,
+                speed: 4,
+                c: color(0, 100, 255)
+            });
+        }
+
+        function startExtraStage1() {
+            gameState = 'EXTRA1';
+            balloons = [];
+            extraTimer = 15;
+            score += 0; 
+            if (soundLoaded.extra1 && bgmExtra1.isLoaded()) {
+                bgmExtra1.setVolume(0.5);
+                bgmExtra1.loop();
+            }
+        }
+
+        function startExtraStage2() {
+            gameState = 'EXTRA2';
+            balloons = [];
+            extraTimer = 15;
+            boss = { x: width/2, y: bossBaseY, w: 300, h: 300, hp: 2, justHit: false };
+            bossIsDead = false;
+            
+            if (soundLoaded.extra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
+            if (soundLoaded.boss && bgmBoss.isLoaded()) {
+                bgmBoss.setVolume(0.5);
+                bgmBoss.loop();
+            }
+        }
+
+        function updateBalloons() {
+            if (!isFiring && gameState !== 'EXTRA2' && frameCount % 30 === 0) {
+                spawnBalloon();
+            }
+
+            for (let i = balloons.length - 1; i >= 0; i--) {
+                let b = balloons[i];
+                b.y -= b.speed;
+                
+                let hit = false;
+                if (!isFiring) {
+                    for (let p of trackedPos) {
+                        if (p && dist(p.x, p.y, b.x, b.y) < b.r + 50) hit = true;
+                    }
+                }
+
+                if (hit) {
+                    popBalloon(i);
+                } else if (b.y < -b.r) {
+                    balloons.splice(i, 1);
+                }
+            }
+        }
+
+        function spawnBalloon() {
+            if (gameState === 'GAME') {
+                let r = random(40, 70);
+                balloons.push({ type: 'NORMAL', x: random(r, width-r), y: height+r, r: r, c: color(random(255), random(255), random(255)), speed: random(3, 7) });
+            } else if (gameState === 'EXTRA1') {
+                let type = random() < 0.5 ? 'GASHIMA' : 'IGONERI';
+                let r = 60;
+                balloons.push({ type: type, x: random(r, width-r), y: height+r, r: r, c: color(255), speed: random(6, 10) });
+            }
+        }
+
+        function popBalloon(i) {
+            let b = balloons[i];
+            let pts = 0;
+            if (b.type === 'NORMAL') pts = 1;
+            else if (b.type === 'WATER') {
+                pts = 332;
+                hasCollectedWater = true;
+                addFloatingText("332", b.x, b.y, 60); 
+            }
+            else if (b.type === 'GASHIMA' || b.type === 'IGONERI') {
+                pts = 15;
+                addFloatingText("15", b.x, b.y, 40); 
+            }
+            
+            score += pts;
+            balloons.splice(i, 1);
+            
+            osc.freq(random(500, 1000));
+            osc.amp(0.3, 0.05); setTimeout(()=>osc.amp(0, 0.05), 100);
+        }
+
+        function updateBoss() {
+            if (!boss || bossIsDead) return;
+            boss.y = bossBaseY + sin(frameCount * 0.05) * 20;
+
+            if (isFiring) {
+                if (!boss.justHit) {
+                    boss.hp--; 
+                    boss.justHit = true; 
+
+                    if (boss.hp <= 0) {
+                        score += 31000000000;
+                        bossIsDead = true;
+                        extraTimer = 3; 
+                        noiseOsc.amp(1.0, 0.1); setTimeout(()=>noiseOsc.amp(0, 1.0), 1000);
+                        
+                        if (soundLoaded.boss && bgmBoss.isPlaying()) bgmBoss.stop();
+                        if (soundLoaded.victory && bgmVictory.isLoaded()) {
+                            bgmVictory.setVolume(1.0);
+                            bgmVictory.play();
+                        }
+                        
+                        addFloatingText("310億", width/2, height/2, 180); 
+                    } else {
+                        addFloatingText("あと1回！", width/2, boss.y, 60);
+                        osc.freq(100); osc.amp(0.8, 0.05); setTimeout(()=>osc.amp(0, 0.05), 200);
+                    }
+                }
+            } else {
+                boss.justHit = false;
+            }
+        }
+
+        function drawGameObjects() {
+            for (let b of balloons) {
+                push();
+                translate(b.x, b.y);
+                if (b.type === 'WATER') {
+                    drawImageOrShape(imgWater, imagesLoaded.water, "佐渡海洋深層水", b.r, color(0,100,255));
+                } else if (b.type === 'GASHIMA') {
+                    drawImageOrShape(imgEnemy1, imagesLoaded.enemy1, "ガシマ", b.r, color(255,0,0));
+                } else if (b.type === 'IGONERI') {
+                    drawImageOrShape(imgEnemy2, imagesLoaded.enemy2, "いごねり", b.r, color(0,255,0));
+                } else {
+                    fill(b.c); stroke(255); strokeWeight(3); circle(0, 0, b.r * 2);
+                    noStroke(); fill(255, 100); circle(-b.r/3, -b.r/3, b.r/2);
+                }
+                pop();
+            }
+
+            if (gameState === 'EXTRA2' && boss) {
+                push();
+                translate(boss.x, boss.y);
+                let displayImg = bossIsDead ? imgBossEnd : imgBoss;
+                let loaded = bossIsDead ? imagesLoaded.bossEnd : imagesLoaded.boss;
+                let label = bossIsDead ? "撃破！" : "佐渡ヶ島(Boss)";
+                drawImageOrShape(displayImg, loaded, label, (boss.w/2) * 2, color(100));
+                pop();
+            }
+
+            if (isFiring) drawBeam();
+
+            for (let ft of floatingTexts) {
+                push();
+                if (ft.val === "310億") {
+                    textSize(150); 
+                    fill(255, 215, 0); 
+                    stroke(255, 0, 0); 
+                    strokeWeight(10);
+                    drawingContext.shadowBlur = 30;
+                    drawingContext.shadowColor = "white";
+                } else if (ft.val === "あと1回！") {
+                    textSize(100);
+                    fill(255, 50, 50);
+                    stroke(255);
+                    strokeWeight(5);
+                } else {
+                    textSize(60); 
+                    fill(255, 255, 0); 
+                    stroke(0); 
+                    strokeWeight(3);
+                }
+                textAlign(CENTER, CENTER);
+                textStyle(BOLD);
+                text(ft.val, ft.x, ft.y);
+                pop();
+            }
+        }
+
+        function drawImageOrShape(img, isLoaded, label, radius, altColor) {
+            if (isLoaded) {
+                imageMode(CENTER);
+                image(img, 0, 0, radius*2.5, radius*2.5); 
+            } else {
+                fill(altColor); stroke(255); strokeWeight(3);
+                if(label === "佐渡ヶ島(Boss)" || label === "撃破！") rect(0,0, radius*2, radius*2);
+                else circle(0, 0, radius * 2);
+                fill(255); noStroke(); textAlign(CENTER, CENTER); textSize(14);
+                text(label, 0, 0);
+            }
+        }
+
+        function updateFloatingTexts() {
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                floatingTexts[i].life--;
+                floatingTexts[i].y -= 1; 
+                if (floatingTexts[i].life <= 0) floatingTexts.splice(i, 1);
+            }
+        }
+
+        function addFloatingText(val, x, y, life) {
+            floatingTexts.push({val: val, x: x, y: y, life: life});
+        }
+
+        function drawWarning() {
+            background(0, 0, 0, 20); 
+            fill(255, 0, 0); stroke(255); strokeWeight(5);
+            textSize(150); textStyle(BOLD); textAlign(LEFT, CENTER);
+            text("WARNING!! EXTRA STAGE!!", warningTextX, height/2);
+            warningTextX -= 30; 
+            if (warningTextX < -2000) {
+                startExtraStage1();
+            }
+        }
+
+        function handleKamehameha() {
+            if (cooldownTimer > 0) { cooldownTimer--; return; }
+            if (isFiring) {
+                fireTimer--;
+                if (fireTimer <= 0) {
+                    isFiring = false; noiseOsc.amp(0, 0.5);
+                    needsSeparation = true;
+                    if (gameState !== 'EXTRA2') { 
+                        for (let i = balloons.length - 1; i >= 0; i--) {
+                            popBalloon(i); 
+                        }
+                    }
+                }
+                return;
+            }
+            let p1 = trackedPos[0], p2 = trackedPos[1];
+            if (p1 && p2) {
+                let d = dist(p1.x, p1.y, p2.x, p2.y);
+                if (needsSeparation) {
+                    stroke(0, 0, 50); strokeWeight(4); line(p1.x, p1.y, p2.x, p2.y);
+                    if (d > 300) needsSeparation = false;
+                    return; 
+                }
+                let lineAlpha = map(d, 0, 400, 255, 50);
+                let lineWeight = map(d, 0, 300, 20, 2);
+                stroke(0, 0, 100, lineAlpha); strokeWeight(lineWeight);
+                line(p1.x, p1.y, p2.x, p2.y);
+                if (d < 300) {
+                    if (!isCharging) { isCharging = true; osc.amp(0.3, 0.1); }
+                    chargeTimer += 2;
+                    let cx = (p1.x + p2.x)/2; let cy = (p1.y + p2.y)/2;
+                    noFill(); stroke(180, 100, 100); strokeWeight(random(5, 15));
+                    let size = map(chargeTimer, 0, 60, 20, 400);
+                    circle(cx, cy, size);
+                    osc.freq(map(chargeTimer, 0, 60, 200, 800)); 
+                    if (chargeTimer > 60) {
+                        isCharging = false; chargeTimer = 0; isFiring = true; fireTimer = 60;
+                        osc.amp(0, 0.1); noiseOsc.amp(0.8, 0.1);
+                    }
+                } else {
+                    if (chargeTimer > 0) {
+                        chargeTimer -= 5;
+                        if(chargeTimer <= 0) { isCharging = false; osc.amp(0, 0.1); }
+                    }
+                }
+            }
+        }
+
+        function drawGameUI() {
+            push();
+            textAlign(LEFT, TOP); textSize(50); textStyle(BOLD);
+            fill(0); text("SCORE: " + formatScore(score), 32, 32);
+            fill(0, 255, 255); text("SCORE: " + formatScore(score), 30, 30);
+            
+            textAlign(RIGHT, TOP);
+            let t = (gameState === 'EXTRA1' || gameState === 'EXTRA2') ? extraTimer : timeLeft;
+            let label = (gameState === 'EXTRA1' || gameState === 'EXTRA2') ? "EXTRA: " : "TIME: ";
+            let col = (gameState === 'EXTRA1' || gameState === 'EXTRA2') ? color(255, 0, 0) : color(0, 255, 0);
+
+            fill(0); text(label + t, width-32, 32);
+            fill(col); text(label + t, width-30, 30);
+
+            let barW = 500; let barH = 40;
+            let barX = width/2 - barW/2; let barY = height - 60;
+            stroke(0, 0, 100); strokeWeight(4); noFill(); rect(barX, barY, barW, barH);
+            noStroke();
+            if (needsSeparation) {
+                fill(0, 0, 50); rect(barX, barY, barW, barH);
+                fill(0, 0, 100); textAlign(CENTER, CENTER); textSize(30);
+                text("てを はなして！", width/2, barY + barH/2);
+            } else if (isCharging) {
+                fill(180, 100, 100); let w = map(chargeTimer, 0, 60, 0, barW);
+                rect(barX, barY, w, barH);
+                fill(0); textAlign(CENTER, CENTER); textSize(30);
+                text("チャージ中！", width/2, barY + barH/2);
+            } else {
+                fill(120, 100, 100, 100); rect(barX, barY, barW, barH);
+                fill(0, 0, 100); textAlign(CENTER, CENTER); textSize(30);
+                text("ひっさつわざOK", width/2, barY + barH/2);
+            }
+            pop();
+        }
+
+        function drawBeam() {
+            noStroke();
+            if (frameCount % 4 < 2) fill(180, 100, 100, 200);
+            else fill(0, 0, 100, 200);
+            rect(0, 0, width, height);
+        }
+
+        let countdownVal = 3;
+        function drawCountdown() {
+            if (frameCount % 60 === 0 && countdownVal > 0) countdownVal--;
+            fill(0,0,0,100); rect(0,0,width,height);
+            fill(60, 100, 100); textAlign(CENTER, CENTER); textSize(200);
+            textStyle(BOLD); stroke(0, 100, 100); strokeWeight(20);
+            if (countdownVal > 0) text(countdownVal, width/2, height/2);
+            else {
+                text("スタート！", width/2, height/2);
+                if (frameCount % 60 === 30) { 
+                    gameState = 'GAME'; score = 0; timeLeft = 60; balloons = [];
+                    hasCollectedWater = false; waterSpawned = false; bossIsDead = false;
+                    
+                    if(soundLoaded.boss && bgmBoss.isPlaying()) bgmBoss.stop();
+                    if(soundLoaded.victory && bgmVictory.isPlaying()) bgmVictory.stop();
+                    if(soundLoaded.extra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
+                    
+                    if(soundLoaded.normal && bgmNormal.isLoaded()) {
+                        bgmNormal.setVolume(0.5);
+                        bgmNormal.loop();
+                    }
+                }
+            }
+        }
+
+        function startCalibration() {
+            ensureAudio();
+            gameState = 'CALIBRATION'; targetColor = null;
+            document.getElementById('title-screen').style.display = 'none';
+            document.getElementById('calibration-screen').style.display = 'flex';
+        }
+        function resetCalibration() { 
+            targetColor = null; 
+            prevTrackedPos = [null, null]; // キャリブレーションリセット時に履歴も消去
+        }
+        function endGame() { 
+            gameState = 'RESULT'; 
+            if(soundLoaded.normal && bgmNormal.isPlaying()) bgmNormal.stop();
+            if(soundLoaded.extra1 && bgmExtra1.isPlaying()) bgmExtra1.stop();
+            if(soundLoaded.boss && bgmBoss.isPlaying()) bgmBoss.stop();
+            
+            document.getElementById('final-score').innerText = formatScore(score); 
+            document.getElementById('result-screen').style.display = 'flex'; 
+            document.getElementById('charge-bar-container').style.display = 'none';
+            if(score > highScore) {
+                highScore = score;
+                localStorage.setItem('kamehameha_highscore', highScore);
+                updateScoreLabels();
+            }
+        }
+        function returnToTitle() { 
+            gameState = 'TITLE'; 
+            if(soundLoaded.victory && bgmVictory.isPlaying()) bgmVictory.stop();
+            document.getElementById('result-screen').style.display = 'none'; 
+            document.getElementById('title-screen').style.display = 'flex'; 
+        }
+
+        function mousePressed() {
+            ensureAudio(); 
+            if (gameState === 'CALIBRATION') {
+                let centerX = (width/2 - window.vidX) / window.vidScale;
+                let centerY = (height/2 - window.vidY) / window.vidScale;
+                video.loadPixels();
+                
+                let c = getAverageYCbCr(centerX, centerY, 30);
+                if (c) {
+                    targetColor = c; 
+                    document.getElementById('calibration-screen').style.display = 'none';
+                    gameState = 'COUNTDOWN'; countdownVal = 3;
+                    document.getElementById('charge-bar-container').style.display = 'block';
+                }
+            }
+        }
+        function windowResized() { resizeCanvas(windowWidth, windowHeight);
+            bossBaseY = height * 0.6;
+        }
+    </script>
+</body>
+</html>
